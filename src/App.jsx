@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server } from 'lucide-react';
+import { Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock, Send, KeyRound, ShieldCheck } from 'lucide-react';
 
 // 专为甲骨文服务器买卖定制的初始模拟数据
 const initialTransactions = [
@@ -13,12 +13,29 @@ const initialTransactions = [
 ];
 
 export default function App() {
+  // ==========================================
+  // 登录鉴权状态管理 (新增)
+  // ==========================================
+  // 从 sessionStorage 读取登录状态，保证刷新页面不用重新登录，但关掉浏览器需要重登，提升安全性
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('oracle_finance_auth') === 'true';
+  });
+  
+  // 登录面板状态
+  const [loginStep, setLoginStep] = useState(1); // 1: 输入TG账号, 2: 输入验证码
+  const [tgUsername, setTgUsername] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  // 仪表盘原有状态
   const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // 表单状态
   const [formData, setFormData] = useState({
-    type: 'income', // 默认买卖通常优先记录收入
+    type: 'income', 
     amount: '',
     category: '',
     date: new Date().toISOString().split('T')[0],
@@ -26,18 +43,93 @@ export default function App() {
   });
 
   // ==========================================
-  // API 请求与本地降级逻辑 (Cloudflare D1 预埋)
+  // 登录交互逻辑 (预埋了后端 API)
+  // ==========================================
+  
+  // 发送验证码到 TG
+  const handleSendCode = async (e) => {
+    e.preventDefault();
+    if (!tgUsername.trim()) {
+      setLoginError('请输入您的 Telegram 用户名');
+      return;
+    }
+    setLoginError('');
+    setIsSendingCode(true);
+
+    try {
+      // 🚨 预埋：这里将来替换为您真实的 Cloudflare Worker API，用于触发 TG Bot 发送消息
+      // await fetch('/api/auth/send-tg-code', { method: 'POST', body: JSON.stringify({ username: tgUsername }) });
+      
+      // 模拟网络延迟
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // 演示模式：在控制台打印一个假验证码方便您测试
+      console.log(`[演示模式] 您的 TG 验证码是: 123456 (发送至 @${tgUsername})`);
+      
+      setLoginStep(2); // 进入输入验证码阶段
+    } catch (error) {
+      setLoginError('验证码发送失败，请检查网络或后端配置');
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
+  // 验证登录码
+  const handleVerifyCode = async (e) => {
+    e.preventDefault();
+    if (verificationCode.length !== 6) {
+      setLoginError('请输入完整的 6 位验证码');
+      return;
+    }
+    setLoginError('');
+    setIsVerifying(true);
+
+    try {
+      // 🚨 预埋：这里将来替换为您真实的 Cloudflare Worker 验证 API，验证成功应返回一个安全的 Token
+      // const res = await fetch('/api/auth/verify', { method: 'POST', body: JSON.stringify({ username: tgUsername, code: verificationCode }) });
+      // if (!res.ok) throw new Error('验证失败');
+
+      // 模拟验证请求延迟
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      if (verificationCode === '123456') { // 演示模式写死的正确密码
+        sessionStorage.setItem('oracle_finance_auth', 'true'); // 记录登录状态
+        setIsAuthenticated(true);
+      } else {
+        setLoginError('验证码错误，请重试');
+      }
+    } catch (error) {
+      setLoginError('验证失败，请稍后再试');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('oracle_finance_auth');
+    setIsAuthenticated(false);
+    setLoginStep(1);
+    setVerificationCode('');
+  };
+
+
+  // ==========================================
+  // 原有业务：API 请求与本地降级逻辑 (受权限保护)
   // ==========================================
   useEffect(() => {
+    // 只有在认证通过后才去拉取财务数据
+    if (!isAuthenticated) return;
+
     const fetchTransactions = async () => {
+      setIsLoading(true);
       try {
-        // 尝试从 Cloudflare 后端 API 获取数据 (假设部署后的路径是 /api/transactions)
+        // 在真实环境中，这里需要在 Headers 加上您登录获取的 Token
+        // fetch('/api/transactions', { headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } })
         const response = await fetch('/api/transactions');
         if (!response.ok) throw new Error('API未就绪');
         const data = await response.json();
         setTransactions(data);
       } catch (error) {
-        // 【降级方案】：如果 API 还没部署，自动使用 localStorage 保证面板正常运作
         console.warn('后端 API 未响应，已降级使用本地存储 (LocalStorage) 模式。');
         const saved = localStorage.getItem('oracle_finance_transactions');
         if (saved) {
@@ -50,14 +142,13 @@ export default function App() {
       }
     };
     fetchTransactions();
-  }, []);
+  }, [isAuthenticated]); // 依赖项加入了认证状态
 
-  // 当处于本地降级模式时，数据变化自动同步到 localStorage
   useEffect(() => {
-    if (!isLoading) {
+    if (isAuthenticated && !isLoading) {
       localStorage.setItem('oracle_finance_transactions', JSON.stringify(transactions));
     }
-  }, [transactions, isLoading]);
+  }, [transactions, isLoading, isAuthenticated]);
 
   // ==========================================
   // 事件处理逻辑
@@ -84,35 +175,25 @@ export default function App() {
       amount: parseFloat(formData.amount),
     };
 
-    // 乐观 UI 更新：先在前端展示
     setTransactions(prev => [newTransaction, ...prev]);
 
     try {
-      // 尝试推送到 Cloudflare D1
       await fetch('/api/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newTransaction)
       });
     } catch (e) {
-      console.log('保存到本地'); // API 失败则默认已由 useEffect 保存在本地
+      console.log('保存到本地'); 
     }
     
-    // 重置表单，保留日期和类型提高连续记账效率
-    setFormData(prev => ({
-      ...prev,
-      amount: '',
-      category: '',
-      description: ''
-    }));
+    setFormData(prev => ({ ...prev, amount: '', category: '', description: '' }));
   };
 
   const handleDelete = async (id) => {
     if (window.confirm('确定要删除这条记录吗？')) {
-      // 乐观 UI 更新
       setTransactions(prev => prev.filter(t => t.id !== id));
       try {
-        // 尝试在 Cloudflare D1 中删除
         await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
       } catch (e) {
         console.log('从本地删除');
@@ -126,8 +207,7 @@ export default function App() {
   const stats = useMemo(() => {
     let totalIncome = 0;
     let totalExpense = 0;
-    
-    const currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+    const currentMonth = new Date().toISOString().slice(0, 7);
     let thisMonthIncome = 0;
     let thisMonthExpense = 0;
 
@@ -142,12 +222,8 @@ export default function App() {
     });
 
     return {
-      totalIncome,
-      totalExpense,
-      balance: totalIncome - totalExpense,
-      thisMonthIncome,
-      thisMonthExpense,
-      thisMonthBalance: thisMonthIncome - thisMonthExpense
+      totalIncome, totalExpense, balance: totalIncome - totalExpense,
+      thisMonthIncome, thisMonthExpense, thisMonthBalance: thisMonthIncome - thisMonthExpense
     };
   }, [transactions]);
 
@@ -170,8 +246,103 @@ export default function App() {
     return Object.values(grouped).sort((a, b) => a.name.localeCompare(b.name));
   }, [transactions]);
 
+
+  // ==========================================
+  // 渲染逻辑：安全拦截层 (Login UI)
+  // ==========================================
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="bg-indigo-600 p-8 text-center">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <ShieldCheck className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-white">安全访问拦截</h2>
+            <p className="text-indigo-100 mt-2 text-sm">系统包含敏感财务数据，请验证身份</p>
+          </div>
+          
+          <div className="p-8">
+            {loginError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 flex items-center justify-center">
+                {loginError}
+              </div>
+            )}
+
+            {loginStep === 1 ? (
+              <form onSubmit={handleSendCode} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Telegram 用户名 (无需加@)</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Send className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="text"
+                      value={tgUsername}
+                      onChange={(e) => setTgUsername(e.target.value)}
+                      className="pl-10 block w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      placeholder="例如: oracle_boss"
+                      required
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSendingCode}
+                  className="w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isSendingCode ? '正在发送...' : '通过 TG 获取验证码'}
+                </button>
+                <p className="text-xs text-gray-400 text-center mt-4">
+                  请确保您已开启 TG 机器人通知接收功能。
+                  <br/> (当前演示模式验证码为: 123456)
+                </p>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyCode} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">输入 6 位验证码</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <KeyRound className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="text"
+                      maxLength="6"
+                      value={verificationCode}
+                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))} // 强制数字
+                      className="pl-10 block w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-gray-900 text-center tracking-[0.5em] text-lg font-semibold focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      placeholder="000000"
+                      required
+                    />
+                  </div>
+                  <div className="text-right mt-2">
+                    <button type="button" onClick={() => setLoginStep(1)} className="text-sm text-indigo-600 hover:text-indigo-500">
+                      换个账号？
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={isVerifying || verificationCode.length !== 6}
+                  className="w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isVerifying ? '验证中...' : '安全登录'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // 渲染逻辑：正常业务面板
+  // ==========================================
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-500">正在加载数据...</div>;
+    return <div className="min-h-screen flex items-center justify-center text-gray-500">正在解密并加载数据...</div>;
   }
 
   return (
@@ -179,7 +350,7 @@ export default function App() {
       <div className="max-w-6xl mx-auto space-y-6">
         
         {/* 顶部标题栏定制 */}
-        <header className="flex items-center justify-between mb-8">
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
               <Server className="w-8 h-8 text-indigo-600" />
@@ -187,6 +358,14 @@ export default function App() {
             </h1>
             <p className="text-gray-500 mt-1">云服务器买卖、开卡成本、代理IP盈亏一目了然</p>
           </div>
+          {/* 添加退出登录按钮 */}
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg shadow-sm hover:bg-gray-50 hover:text-red-600 transition-colors self-start sm:self-auto"
+          >
+            <Lock className="w-4 h-4" />
+            <span className="text-sm font-medium">锁定面板</span>
+          </button>
         </header>
 
         {/* 核心指标区域 (KPIs) */}
@@ -356,7 +535,6 @@ export default function App() {
         {/* 底部：带【总收入/总支出】对比统计的交易流水表 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           
-          {/* 表格头部：显眼的总收支统计 */}
           <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <h2 className="text-lg font-semibold text-gray-800">业务流水明细</h2>
             
