@@ -359,8 +359,8 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans text-gray-800">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* 顶部标题栏定制 */}
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
+        {/* 顶部标题栏定制 - 已将总收支高亮移动至此 */}
+        <header className="flex flex-col xl:flex-row xl:items-center justify-between mb-8 gap-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
               <Server className="w-8 h-8 text-indigo-600" />
@@ -368,14 +368,44 @@ export default function App() {
             </h1>
             <p className="text-gray-500 mt-1">云服务器买卖、开卡成本、代理IP盈亏一目了然</p>
           </div>
-          {/* 添加退出登录按钮 */}
-          <button 
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg shadow-sm hover:bg-gray-50 hover:text-red-600 transition-colors self-start sm:self-auto"
-          >
-            <Lock className="w-4 h-4" />
-            <span className="text-sm font-medium">锁定面板</span>
-          </button>
+          
+          {/* 右侧：高亮总收支统计 & 锁定按钮 */}
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            {/* 总收入高亮标识 */}
+            <div className="flex items-center gap-3 bg-green-50/80 px-4 sm:px-5 py-2.5 rounded-xl border border-green-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="hidden sm:flex p-1.5 bg-green-100 rounded-lg">
+                <TrendingUp className="w-5 h-5 text-green-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-bold text-green-700">历史总收入:</span>
+                <span className="text-2xl font-black text-green-600 tracking-tight">
+                  ¥{stats.totalIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+            
+            {/* 总成本高亮标识 */}
+            <div className="flex items-center gap-3 bg-red-50/80 px-4 sm:px-5 py-2.5 rounded-xl border border-red-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="hidden sm:flex p-1.5 bg-red-100 rounded-lg">
+                <TrendingDown className="w-5 h-5 text-red-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-bold text-red-700">历史总成本:</span>
+                <span className="text-2xl font-black text-red-500 tracking-tight">
+                  ¥{stats.totalExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            {/* 锁定按钮（改为图标形式融入右侧布局） */}
+            <button 
+              onClick={handleLogout}
+              className="flex items-center justify-center w-12 h-12 bg-white border border-gray-200 text-gray-500 rounded-xl shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all"
+              title="锁定面板"
+            >
+              <Lock className="w-5 h-5" />
+            </button>
+          </div>
         </header>
 
         {/* 核心指标区域 (KPIs) */}
@@ -545,37 +575,8 @@ export default function App() {
         {/* 底部：带【总收入/总支出】对比统计的交易流水表 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           
-          <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50">
             <h2 className="text-lg font-semibold text-gray-800">业务流水明细</h2>
-            
-            {/* 强化版：醒目的总收支对比区 */}
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-              {/* 总收入高亮标识 */}
-              <div className="flex items-center gap-3 bg-green-50/80 px-4 sm:px-5 py-2.5 rounded-xl border border-green-200 shadow-sm hover:shadow-md transition-shadow">
-                <div className="hidden sm:flex p-1.5 bg-green-100 rounded-lg">
-                  <TrendingUp className="w-5 h-5 text-green-600" />
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-bold text-green-700">总收入:</span>
-                  <span className="text-2xl font-black text-green-600 tracking-tight">
-                    ¥{stats.totalIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-              
-              {/* 总成本高亮标识 */}
-              <div className="flex items-center gap-3 bg-red-50/80 px-4 sm:px-5 py-2.5 rounded-xl border border-red-200 shadow-sm hover:shadow-md transition-shadow">
-                <div className="hidden sm:flex p-1.5 bg-red-100 rounded-lg">
-                  <TrendingDown className="w-5 h-5 text-red-600" />
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-bold text-red-700">总成本:</span>
-                  <span className="text-2xl font-black text-red-500 tracking-tight">
-                    ¥{stats.totalExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            </div>
           </div>
           
           {transactions.length > 0 ? (
