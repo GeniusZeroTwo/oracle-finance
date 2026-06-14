@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock, Send, KeyRound, ShieldCheck } from 'lucide-react';
+import { Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock, KeyRound, ShieldCheck, RefreshCw } from 'lucide-react';
 
 // 专为甲骨文服务器买卖定制的初始模拟数据
 const initialTransactions = [
@@ -14,20 +14,19 @@ const initialTransactions = [
 
 export default function App() {
   // ==========================================
-  // 登录鉴权状态管理 (新增)
+  // 登录鉴权状态管理 (简化版)
   // ==========================================
-  // 从 sessionStorage 读取登录状态，保证刷新页面不用重新登录，但关掉浏览器需要重登，提升安全性
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem('oracle_finance_auth') === 'true';
   });
   
   // 登录面板状态
-  const [loginStep, setLoginStep] = useState(1); // 1: 输入TG账号, 2: 输入验证码
-  const [tgUsername, setTgUsername] = useState('');
+  const [loginStep, setLoginStep] = useState(1); // 1: 准备获取验证码, 2: 输入验证码
   const [verificationCode, setVerificationCode] = useState('');
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [loginMessage, setLoginMessage] = useState('');
 
   // 仪表盘原有状态
   const [transactions, setTransactions] = useState([]);
@@ -43,32 +42,32 @@ export default function App() {
   });
 
   // ==========================================
-  // 登录交互逻辑 (预埋了后端 API)
+  // 登录交互逻辑 (真实后端 API)
   // ==========================================
   
-  // 发送验证码到 TG
-  const handleSendCode = async (e) => {
-    e.preventDefault();
-    if (!tgUsername.trim()) {
-      setLoginError('请输入您的 Telegram 用户名');
-      return;
-    }
+  // 发送验证码到 TG (不再需要用户名)
+  const handleSendCode = async () => {
     setLoginError('');
+    setLoginMessage('');
     setIsSendingCode(true);
 
     try {
-      // 🚨 预埋：这里将来替换为您真实的 Cloudflare Worker API，用于触发 TG Bot 发送消息
-      // await fetch('/api/auth/send-tg-code', { method: 'POST', body: JSON.stringify({ username: tgUsername }) });
+      // 请求真实后端的验证码接口
+      const res = await fetch('/api/auth/send-code', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }
+      });
       
-      // 模拟网络延迟
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || '请求失败');
+      }
       
-      // 演示模式：在控制台打印一个假验证码方便您测试
-      console.log(`[演示模式] 您的 TG 验证码是: 123456 (发送至 @${tgUsername})`);
-      
+      const data = await res.json();
+      setLoginMessage(data.message || '验证码已发送，请查看您的 Telegram。');
       setLoginStep(2); // 进入输入验证码阶段
     } catch (error) {
-      setLoginError('验证码发送失败，请检查网络或后端配置');
+      setLoginError(error.message || '验证码发送失败，请检查网络或后端配置');
     } finally {
       setIsSendingCode(false);
     }
@@ -85,21 +84,24 @@ export default function App() {
     setIsVerifying(true);
 
     try {
-      // 🚨 预埋：这里将来替换为您真实的 Cloudflare Worker 验证 API，验证成功应返回一个安全的 Token
-      // const res = await fetch('/api/auth/verify', { method: 'POST', body: JSON.stringify({ username: tgUsername, code: verificationCode }) });
-      // if (!res.ok) throw new Error('验证失败');
-
-      // 模拟验证请求延迟
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      if (verificationCode === '123456') { // 演示模式写死的正确密码
-        sessionStorage.setItem('oracle_finance_auth', 'true'); // 记录登录状态
-        setIsAuthenticated(true);
-      } else {
-        setLoginError('验证码错误，请重试');
+      // 验证验证码并获取 Token (不再需要传递用户名)
+      const res = await fetch('/api/auth/verify', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: verificationCode }) 
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || '验证码错误或已过期');
       }
+
+      const data = await res.json();
+      sessionStorage.setItem('oracle_finance_auth', 'true'); 
+      sessionStorage.setItem('token', data.token); // 保存真实鉴权 Token
+      setIsAuthenticated(true);
     } catch (error) {
-      setLoginError('验证失败，请稍后再试');
+      setLoginError(error.message || '验证失败，请稍后再试');
     } finally {
       setIsVerifying(false);
     }
@@ -107,9 +109,12 @@ export default function App() {
 
   const handleLogout = () => {
     sessionStorage.removeItem('oracle_finance_auth');
+    sessionStorage.removeItem('token');
     setIsAuthenticated(false);
     setLoginStep(1);
     setVerificationCode('');
+    setLoginMessage('');
+    setLoginError('');
   };
 
 
@@ -117,21 +122,18 @@ export default function App() {
   // 原有业务：API 请求与本地降级逻辑 (受权限保护)
   // ==========================================
   useEffect(() => {
-    // 只有在认证通过后才去拉取财务数据
     if (!isAuthenticated) return;
 
     const fetchTransactions = async () => {
       setIsLoading(true);
       try {
-        // 在真实环境加上您登录获取的 Token
         const response = await fetch('/api/transactions', { 
           headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } 
         });
         
-        // 【新增安全拦截】如果是 401 未授权，直接强制登出，严禁降级走本地缓存
         if (response.status === 401) {
           handleLogout();
-          alert("登录状态已过期，请重新验证身份！");
+          alert("登录状态已过期或未授权，请重新验证身份！");
           return;
         }
 
@@ -139,7 +141,7 @@ export default function App() {
         const data = await response.json();
         setTransactions(data);
       } catch (error) {
-        console.warn('后端 API 未响应，已降级使用本地存储 (LocalStorage) 模式。');
+        console.warn('后端 API 未响应或发生错误，已降级使用本地存储 (LocalStorage) 模式。');
         const saved = localStorage.getItem('oracle_finance_transactions');
         if (saved) {
           setTransactions(JSON.parse(saved));
@@ -151,7 +153,7 @@ export default function App() {
       }
     };
     fetchTransactions();
-  }, [isAuthenticated]); // 依赖项加入了认证状态
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
@@ -191,7 +193,7 @@ export default function App() {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sessionStorage.getItem('token')}` // 必须携带 Token
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`
         },
         body: JSON.stringify(newTransaction)
       });
@@ -208,7 +210,7 @@ export default function App() {
       try {
         await fetch(`/api/transactions/${id}`, { 
           method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } // 删除必须携带 Token
+          headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
         });
       } catch (e) {
         console.log('从本地删除');
@@ -283,37 +285,27 @@ export default function App() {
                 {loginError}
               </div>
             )}
+            {loginMessage && (
+               <div className="bg-green-50 text-green-700 p-3 rounded-lg text-sm mb-6 flex items-center justify-center">
+                 {loginMessage}
+               </div>
+            )}
 
             {loginStep === 1 ? (
-              <form onSubmit={handleSendCode} className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Telegram 用户名 (无需加@)</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Send className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                      type="text"
-                      value={tgUsername}
-                      onChange={(e) => setTgUsername(e.target.value)}
-                      className="pl-10 block w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                      placeholder="例如: oracle_boss"
-                      required
-                    />
-                  </div>
-                </div>
+              <div className="space-y-6">
+                <p className="text-sm text-gray-600 text-center">
+                  为了您的数据安全，登录需要验证您的管理员身份。点击下方按钮，系统将向绑定的 Telegram 发送验证码。
+                </p>
                 <button
-                  type="submit"
+                  onClick={handleSendCode}
                   disabled={isSendingCode}
                   className="w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {isSendingCode ? '正在发送...' : '通过 TG 获取验证码'}
+                  {isSendingCode ? (
+                    <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> 正在发送...</>
+                  ) : '获取 Telegram 验证码'}
                 </button>
-                <p className="text-xs text-gray-400 text-center mt-4">
-                  请确保您已开启 TG 机器人通知接收功能。
-                  <br/> (当前演示模式验证码为: 123456)
-                </p>
-              </form>
+              </div>
             ) : (
               <form onSubmit={handleVerifyCode} className="space-y-6">
                 <div>
@@ -326,15 +318,18 @@ export default function App() {
                       type="text"
                       maxLength="6"
                       value={verificationCode}
-                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))} // 强制数字
+                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
                       className="pl-10 block w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-gray-900 text-center tracking-[0.5em] text-lg font-semibold focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                       placeholder="000000"
                       required
                     />
                   </div>
-                  <div className="text-right mt-2">
-                    <button type="button" onClick={() => setLoginStep(1)} className="text-sm text-indigo-600 hover:text-indigo-500">
-                      换个账号？
+                  <div className="flex justify-between items-center mt-2">
+                     <button type="button" onClick={handleSendCode} disabled={isSendingCode} className="text-xs text-gray-500 hover:text-indigo-600 disabled:opacity-50">
+                      重新发送
+                    </button>
+                    <button type="button" onClick={() => setLoginStep(1)} className="text-xs text-indigo-600 hover:text-indigo-500">
+                      返回
                     </button>
                   </div>
                 </div>
