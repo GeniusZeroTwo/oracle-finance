@@ -123,9 +123,18 @@ export default function App() {
     const fetchTransactions = async () => {
       setIsLoading(true);
       try {
-        // 在真实环境中，这里需要在 Headers 加上您登录获取的 Token
-        // fetch('/api/transactions', { headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } })
-        const response = await fetch('/api/transactions');
+        // 在真实环境加上您登录获取的 Token
+        const response = await fetch('/api/transactions', { 
+          headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } 
+        });
+        
+        // 【新增安全拦截】如果是 401 未授权，直接强制登出，严禁降级走本地缓存
+        if (response.status === 401) {
+          handleLogout();
+          alert("登录状态已过期，请重新验证身份！");
+          return;
+        }
+
         if (!response.ok) throw new Error('API未就绪');
         const data = await response.json();
         setTransactions(data);
@@ -180,7 +189,10 @@ export default function App() {
     try {
       await fetch('/api/transactions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}` // 必须携带 Token
+        },
         body: JSON.stringify(newTransaction)
       });
     } catch (e) {
@@ -194,7 +206,10 @@ export default function App() {
     if (window.confirm('确定要删除这条记录吗？')) {
       setTransactions(prev => prev.filter(t => t.id !== id));
       try {
-        await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
+        await fetch(`/api/transactions/${id}`, { 
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } // 删除必须携带 Token
+        });
       } catch (e) {
         console.log('从本地删除');
       }
