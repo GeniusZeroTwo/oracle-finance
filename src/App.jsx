@@ -545,20 +545,35 @@ export default function App() {
         {/* 底部：带【总收入/总支出】对比统计的交易流水表 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <h2 className="text-lg font-semibold text-gray-800">业务流水明细</h2>
             
-            <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                <span className="text-sm text-gray-600">总收入:</span>
-                <span className="text-base font-bold text-green-600">¥{stats.totalIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+            {/* 强化版：醒目的总收支对比区 */}
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              {/* 总收入高亮标识 */}
+              <div className="flex items-center gap-3 bg-green-50/80 px-4 sm:px-5 py-2.5 rounded-xl border border-green-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="hidden sm:flex p-1.5 bg-green-100 rounded-lg">
+                  <TrendingUp className="w-5 h-5 text-green-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-bold text-green-700">总收入:</span>
+                  <span className="text-2xl font-black text-green-600 tracking-tight">
+                    ¥{stats.totalIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
-              <div className="w-px h-6 bg-gray-200"></div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                <span className="text-sm text-gray-600">总成本:</span>
-                <span className="text-base font-bold text-red-500">¥{stats.totalExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+              
+              {/* 总成本高亮标识 */}
+              <div className="flex items-center gap-3 bg-red-50/80 px-4 sm:px-5 py-2.5 rounded-xl border border-red-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="hidden sm:flex p-1.5 bg-red-100 rounded-lg">
+                  <TrendingDown className="w-5 h-5 text-red-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-bold text-red-700">总成本:</span>
+                  <span className="text-2xl font-black text-red-500 tracking-tight">
+                    ¥{stats.totalExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
