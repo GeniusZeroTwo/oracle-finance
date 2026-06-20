@@ -233,13 +233,28 @@ const FinanceDashboard = () => {
   };
 
   const stats = useMemo(() => {
-    let totalIncome = 0, totalExpense = 0, thisMonthIncome = 0, thisMonthExpense = 0;
+    // 修复：使用“分”作为基础单位（乘以100取整）进行运算，彻底解决 JavaScript 浮点数精度丢失隐患
+    let totalIncomeCents = 0, totalExpenseCents = 0, thisMonthIncomeCents = 0, thisMonthExpenseCents = 0;
     const currentMonth = new Date().toISOString().slice(0, 7);
     transactions.forEach(t => {
-      if (t.type === 'income') { totalIncome += t.amount; if (t.date.startsWith(currentMonth)) thisMonthIncome += t.amount; }
-      else { totalExpense += t.amount; if (t.date.startsWith(currentMonth)) thisMonthExpense += t.amount; }
+      const amountCents = Math.round((t.amount || 0) * 100);
+      if (t.type === 'income') { 
+        totalIncomeCents += amountCents; 
+        if (t.date.startsWith(currentMonth)) thisMonthIncomeCents += amountCents; 
+      }
+      else { 
+        totalExpenseCents += amountCents; 
+        if (t.date.startsWith(currentMonth)) thisMonthExpenseCents += amountCents; 
+      }
     });
-    return { totalIncome, totalExpense, balance: totalIncome - totalExpense, thisMonthIncome, thisMonthExpense, thisMonthBalance: thisMonthIncome - thisMonthExpense };
+    return { 
+      totalIncome: totalIncomeCents / 100, 
+      totalExpense: totalExpenseCents / 100, 
+      balance: (totalIncomeCents - totalExpenseCents) / 100, 
+      thisMonthIncome: thisMonthIncomeCents / 100, 
+      thisMonthExpense: thisMonthExpenseCents / 100, 
+      thisMonthBalance: (thisMonthIncomeCents - thisMonthExpenseCents) / 100 
+    };
   }, [transactions]);
 
   const chartData = useMemo(() => {
@@ -247,9 +262,18 @@ const FinanceDashboard = () => {
     transactions.forEach(t => {
       const month = t.date.slice(0, 7); 
       if (!grouped[month]) grouped[month] = { name: month, income: 0, expense: 0 };
-      t.type === 'income' ? grouped[month].income += t.amount : grouped[month].expense += t.amount;
+      
+      // 图表统计同样修复精度隐患
+      const amountCents = Math.round((t.amount || 0) * 100);
+      t.type === 'income' ? grouped[month].income += amountCents : grouped[month].expense += amountCents;
     });
-    return Object.values(grouped).sort((a, b) => a.name.localeCompare(b.name));
+    
+    // 计算完成后除以 100 还原为显示金额
+    return Object.values(grouped).map(g => ({
+      ...g,
+      income: g.income / 100,
+      expense: g.expense / 100
+    })).sort((a, b) => a.name.localeCompare(b.name));
   }, [transactions]);
 
   if (isLoading) return <div className="text-center text-gray-500 py-10">加载财务数据中...</div>;
@@ -436,9 +460,17 @@ const AccountInventory = ({ setToastMessage }) => {
   };
 
   const stats = useMemo(() => {
-    let aliveAccounts = 0, bannedAccounts = 0, totalCost = 0;
-    accounts.forEach(acc => { acc.status === 'alive' ? aliveAccounts++ : bannedAccounts++; totalCost += (acc.cost || 0); });
-    return { totalAccounts: accounts.length, aliveAccounts, bannedAccounts, totalCost };
+    let aliveAccounts = 0, bannedAccounts = 0, totalCostCents = 0;
+    accounts.forEach(acc => { 
+      acc.status === 'alive' ? aliveAccounts++ : bannedAccounts++; 
+      totalCostCents += Math.round((acc.cost || 0) * 100); 
+    });
+    return { 
+      totalAccounts: accounts.length, 
+      aliveAccounts, 
+      bannedAccounts, 
+      totalCost: totalCostCents / 100 
+    };
   }, [accounts]);
 
   if (isLoading) return <div className="text-center text-gray-500 py-10">解密库存数据中...</div>;
