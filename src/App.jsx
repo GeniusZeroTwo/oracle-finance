@@ -256,21 +256,31 @@ const FinanceDashboard = () => {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 修改了 lg:grid-cols-4 为 lg:grid-cols-5，并新增了"历史总利润"卡片 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
           <span className="text-gray-500 text-sm font-medium mb-1 block">历史总收入</span>
           <div className="text-2xl font-bold text-green-600">¥{stats.totalIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
           <TrendingUp className="w-16 h-16 text-green-500 absolute -right-4 -bottom-4 opacity-10" />
         </div>
+        
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
           <span className="text-gray-500 text-sm font-medium mb-1 block">历史总成本</span>
           <div className="text-2xl font-bold text-red-500">¥{stats.totalExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
           <TrendingDown className="w-16 h-16 text-red-500 absolute -right-4 -bottom-4 opacity-10" />
         </div>
+        
+        <div className={`bg-white rounded-xl p-5 shadow-sm border relative overflow-hidden ${stats.balance >= 0 ? 'border-green-100' : 'border-red-100'}`}>
+          <span className="text-gray-500 text-sm font-medium mb-1 block">历史总利润</span>
+          <div className={`text-2xl font-bold ${stats.balance >= 0 ? 'text-green-600' : 'text-red-500'}`}>¥{stats.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
+          <DollarSign className={`w-16 h-16 absolute -right-4 -bottom-4 opacity-10 ${stats.balance >= 0 ? 'text-green-500' : 'text-red-500'}`} />
+        </div>
+
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
           <span className="text-gray-500 text-sm font-medium mb-1 block">本月销售收入</span>
           <div className="text-2xl font-bold text-gray-800">¥{stats.thisMonthIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
         </div>
+        
         <div className={`bg-white rounded-xl p-5 shadow-sm border relative overflow-hidden ${stats.thisMonthBalance >= 0 ? 'border-indigo-100' : 'border-orange-100'}`}>
           <span className="text-gray-500 text-sm font-medium mb-1 block">本月净利润</span>
           <div className={`text-2xl font-bold ${stats.thisMonthBalance >= 0 ? 'text-indigo-600' : 'text-orange-500'}`}>¥{stats.thisMonthBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
