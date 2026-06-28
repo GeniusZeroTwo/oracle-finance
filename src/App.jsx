@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { 
   Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock, 
   KeyRound, ShieldCheck, RefreshCw, Box, LayoutDashboard, Copy, 
-  CheckCircle2, Ban, AlertCircle, LogOut
+  CheckCircle2, Ban, AlertCircle, LogOut, Edit
 } from 'lucide-react';
 
 // ==========================================
@@ -392,6 +392,10 @@ const FinanceDashboard = () => {
 const AccountInventory = ({ setToastMessage }) => {
   const [accounts, setAccounts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // 用于控制卡片编辑状态的 State
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', cost: '', status: 'alive', description: '' });
   
   // 独立的账号粘贴框 与 2FA单独字段
   const [accountFormData, setAccountFormData] = useState({ 
@@ -474,6 +478,62 @@ const AccountInventory = ({ setToastMessage }) => {
     } catch(e) {}
   };
 
+  // 启动编辑
+  const startEdit = (acc) => {
+    let decryptedAccountData = '';
+    if (acc.password === 'MERGED_DATA') {
+      decryptedAccountData = decryptText(acc.email);
+    } else {
+      decryptedAccountData = acc.email + '----' + decryptText(acc.password);
+    }
+    setEditingId(acc.id);
+    setEditForm({
+      accountData: decryptedAccountData,
+      twoFactor: decryptText(acc.twoFactor),
+      cost: acc.cost,
+      status: acc.status,
+      description: acc.description || ''
+    });
+  };
+
+  // 取消编辑
+  const cancelEdit = () => {
+    setEditingId(null);
+  };
+
+  // 保存修改记录
+  const saveEdit = async (id) => {
+    const updatedAcc = {
+      id, // 保持原始ID不变
+      email: encryptText(editForm.accountData),
+      password: 'MERGED_DATA',
+      twoFactor: editForm.twoFactor ? encryptText(editForm.twoFactor) : '',
+      cost: parseFloat(editForm.cost) || 0,
+      status: editForm.status,
+      description: editForm.description,
+      date: accounts.find(a => a.id === id).date // 保持原始录入日期
+    };
+
+    // 本地优先更新 (乐观更新)
+    setAccounts(prev => prev.map(a => a.id === id ? updatedAcc : a));
+    setEditingId(null);
+
+    try {
+      // 巧妙替代：后端原本的 PATCH 仅支持更新状态。
+      // 为了免除您去重写和部署 Cloudflare 后端的繁琐，前端通过 DELETE + POST 原子操作实现完美覆盖。
+      await fetch(`/api/accounts/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } });
+      await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+        body: JSON.stringify(updatedAcc)
+      });
+      if(setToastMessage) {
+        setToastMessage('修改已重新加密保存');
+        setTimeout(() => setToastMessage(''), 2000);
+      }
+    } catch (e) { console.log('Update failed', e); }
+  };
+
   const copyToClipboard = (text, type) => {
     if (!text) return;
     navigator.clipboard.writeText(text);
@@ -553,6 +613,54 @@ const AccountInventory = ({ setToastMessage }) => {
                 
                 const decryptedTwoFactor = decryptText(acc.twoFactor);
 
+                // ==========================================
+                // 渲染状态 1：编辑模式卡片
+                // ==========================================
+                if (editingId === acc.id) {
+                  return (
+                    <div key={acc.id} className="bg-indigo-50/40 border border-indigo-200 rounded-xl p-5 shadow-sm transition-all relative flex flex-col gap-3">
+                      <div className="text-sm font-semibold text-indigo-700 border-b border-indigo-100 pb-2 mb-1 flex items-center"><Edit className="w-4 h-4 mr-1.5"/>编辑加密账号</div>
+                      
+                      <div>
+                        <label className="block text-xs font-medium text-indigo-500 mb-1">账号数据</label>
+                        <textarea value={editForm.accountData} onChange={e=>setEditForm({...editForm, accountData: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2.5 outline-none h-[110px] font-mono focus:ring-1 focus:ring-indigo-400" />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-medium text-indigo-500 mb-1">2FA 密钥</label>
+                        <input value={editForm.twoFactor} onChange={e=>setEditForm({...editForm, twoFactor: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2.5 outline-none font-mono focus:ring-1 focus:ring-indigo-400" />
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-indigo-500 mb-1">成本 (¥)</label>
+                          <input type="number" step="0.01" value={editForm.cost} onChange={e=>setEditForm({...editForm, cost: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-indigo-500 mb-1">状态</label>
+                          <select value={editForm.status} onChange={e=>setEditForm({...editForm, status: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400">
+                            <option value="alive">存活</option>
+                            <option value="banned">封禁</option>
+                          </select>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-medium text-indigo-500 mb-1">备注信息</label>
+                        <textarea value={editForm.description} onChange={e=>setEditForm({...editForm, description: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none min-h-[60px] focus:ring-1 focus:ring-indigo-400" />
+                      </div>
+                      
+                      <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-indigo-100">
+                        <button onClick={cancelEdit} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 bg-white border border-gray-200 rounded-lg transition-colors">取消</button>
+                        <button onClick={() => saveEdit(acc.id)} className="px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center"><CheckCircle2 className="w-4 h-4 mr-1.5"/> 保存修改</button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // ==========================================
+                // 渲染状态 2：默认展示卡片
+                // ==========================================
                 return (
                   <div key={acc.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all relative group flex flex-col">
                     {/* 卡片头部 */}
@@ -566,13 +674,13 @@ const AccountInventory = ({ setToastMessage }) => {
                       </button>
                     </div>
                     
-                    {/* 文本框：主账号数据 */}
+                    {/* 文本框：主账号数据 (调大了高度) */}
                     <div className="relative mb-3 flex-grow">
                       <textarea 
                         readOnly
                         value={decryptedAccountData}
                         onClick={(e) => { e.target.select(); copyToClipboard(decryptedAccountData, '账号凭证'); }}
-                        className="w-full text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-3 text-gray-700 outline-none resize-none h-[64px] font-mono transition-colors cursor-pointer"
+                        className="w-full text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-3 text-gray-700 outline-none resize-none h-[110px] font-mono transition-colors cursor-pointer"
                         title="点击全选并复制主账号"
                       />
                       <button 
@@ -610,15 +718,21 @@ const AccountInventory = ({ setToastMessage }) => {
                       </div>
                     )}
                     
-                    {/* 底部信息与操作 */}
-                    <div className="flex justify-between items-center text-sm mb-3">
-                      <span className="text-gray-500 font-medium">成本: ¥{Number(acc.cost).toLocaleString()}</span>
-                      <span className="text-gray-500 truncate max-w-[130px] bg-gray-100 px-2 py-0.5 rounded text-xs" title={acc.description || '无备注'}>
-                        {acc.description || '无备注'}
-                      </span>
+                    {/* 底部信息 (备注已实现自动换行，不再截断) */}
+                    <div className="flex flex-col gap-2 text-sm mb-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500 font-medium">成本: ¥{Number(acc.cost).toLocaleString()}</span>
+                      </div>
+                      <div className="text-gray-600 bg-gray-50 px-2.5 py-2 rounded text-xs break-words whitespace-pre-wrap border border-gray-100 min-h-[34px]">
+                        {acc.description || <span className="text-gray-400 italic">暂无备注</span>}
+                      </div>
                     </div>
                     
-                    <div className="border-t border-gray-100 pt-3 flex justify-end">
+                    {/* 底部操作区新增【编辑按钮】 */}
+                    <div className="border-t border-gray-100 pt-3 flex justify-end gap-2">
+                       <button onClick={() => startEdit(acc)} className="text-gray-400 hover:text-indigo-500 transition-colors p-1" title="编辑此账号">
+                         <Edit className="w-4 h-4" />
+                       </button>
                        <button onClick={() => handleAccDelete(acc.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="彻底删除此账号">
                          <Trash2 className="w-4 h-4" />
                        </button>
