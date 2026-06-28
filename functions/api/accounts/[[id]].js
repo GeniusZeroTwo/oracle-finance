@@ -40,5 +40,29 @@ export async function onRequest(context) {
     }
   }
 
+  // PUT: 更新完整账号记录 (新增全字段覆盖接口)
+  if (request.method === 'PUT') {
+    try {
+      const data = await request.json();
+      await db.prepare(
+        "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ? WHERE id = ?"
+      ).bind(
+        data.email,
+        data.password,
+        data.twoFactor || '',
+        data.cost || 0,
+        data.status || 'alive',
+        data.date,
+        data.description || '',
+        id
+      ).run();
+      
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+      console.error(error);
+      return new Response(JSON.stringify({ error: "完整更新失败" }), { status: 500 });
+    }
+  }
+
   return new Response("Method not allowed", { status: 405 });
 }
