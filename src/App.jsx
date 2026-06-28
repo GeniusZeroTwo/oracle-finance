@@ -519,19 +519,23 @@ const AccountInventory = ({ setToastMessage }) => {
     setEditingId(null);
 
     try {
-      // 巧妙替代：后端原本的 PATCH 仅支持更新状态。
-      // 为了免除您去重写和部署 Cloudflare 后端的繁琐，前端通过 DELETE + POST 原子操作实现完美覆盖。
-      await fetch(`/api/accounts/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } });
-      await fetch('/api/accounts', {
-        method: 'POST',
+      // 正规调用：直接使用后端的 PUT 接口完成整条记录的原位更新
+      const res = await fetch(`/api/accounts/${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
         body: JSON.stringify(updatedAcc)
       });
+
+      if (!res.ok) throw new Error('更新请求失败');
+
       if(setToastMessage) {
         setToastMessage('修改已重新加密保存');
         setTimeout(() => setToastMessage(''), 2000);
       }
-    } catch (e) { console.log('Update failed', e); }
+    } catch (e) { 
+      console.error('Update failed', e); 
+      alert('同步到服务器失败，请检查网络！');
+    }
   };
 
   const copyToClipboard = (text, type) => {
