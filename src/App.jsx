@@ -17,40 +17,66 @@ const initialTransactions = [
 ];
 
 // ==========================================
-// 全局工具：安全加密 & 解密模块 (已修复乱码隐患)
+// 全局工具：安全加密 & 解密模块 (已移除外部依赖，使用原生高级混淆)
 // ==========================================
-// 修复：绝不能使用动态 token 作为密钥。统一使用固定前端密钥，保证历史数据与未来数据的持久可解密性。
-const getSecretKey = () => 'fallback_local_secret_key_2026';
+// ⚠️ 强烈建议在部署前，将此处的 AES_SECRET_KEY 修改为您个人的复杂密码
+const AES_SECRET_KEY = 'oracle_finance_secure_key_2026_CHANGE_ME';
+const OLD_XOR_KEY = 'fallback_local_secret_key_2026'; // 保留用于兼容您的历史旧数据
+
+// 原生 RC4 算法实现，无需第三方库，避免编译报错
+const rc4 = (key, str) => {
+  let s = [], j = 0, x, res = '';
+  for (let i = 0; i < 256; i++) { s[i] = i; }
+  for (let i = 0; i < 256; i++) {
+    j = (j + s[i] + key.charCodeAt(i % key.length)) % 256;
+    x = s[i]; s[i] = s[j]; s[j] = x;
+  }
+  let i = 0; j = 0;
+  for (let y = 0; y < str.length; y++) {
+    i = (i + 1) % 256;
+    j = (j + s[i]) % 256;
+    x = s[i]; s[i] = s[j]; s[j] = x;
+    res += String.fromCharCode(str.charCodeAt(y) ^ s[(s[i] + s[j]) % 256]);
+  }
+  return res;
+};
 
 const encryptText = (text) => {
   if (!text) return '';
-  const key = getSecretKey();
-  let result = '';
-  for (let i = 0; i < text.length; i++) {
-    result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-  }
-  return btoa(encodeURIComponent(result));
+  // 使用 RC4 加密并进行 Base64 编码，增加一个前缀标识这是新版加密
+  const encrypted = rc4(AES_SECRET_KEY, encodeURIComponent(text));
+  return 'V2_' + btoa(encrypted);
 };
 
 const decryptText = (cipherText) => {
   if (!cipherText) return '';
   
-  // 兼容性修复 1：如果字符串包含非 base64 字符，说明大概率是旧版未加密的明文，直接返回
+  // 1. 尝试使用新版 RC4 解密 (适用于新录入/修改的数据)
+  if (cipherText.startsWith('V2_')) {
+    try {
+      const actualCipher = cipherText.substring(3);
+      const decryptedText = decodeURIComponent(rc4(AES_SECRET_KEY, atob(actualCipher)));
+      if (decryptedText) return decryptedText;
+    } catch (error) {
+      // 解密失败静默拦截
+    }
+  }
+
+  // 2. 兼容性修复：如果字符串包含非 base64 字符，说明大概率是旧版未加密的明文
   if (!/^[a-zA-Z0-9+/]*={0,2}$/.test(cipherText)) {
     return cipherText;
   }
 
+  // 3. 降级尝试旧版 XOR 解密 (保证您之前的历史存量数据依然可见)
   try {
     const decoded = atob(cipherText);
     const text = decodeURIComponent(decoded);
-    const key = getSecretKey();
     let result = '';
     for (let i = 0; i < text.length; i++) {
-      result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+      result += String.fromCharCode(text.charCodeAt(i) ^ OLD_XOR_KEY.charCodeAt(i % OLD_XOR_KEY.length));
     }
     return result || cipherText;
   } catch (error) {
-    // 兼容性修复 2：如果解密或解码过程中抛出异常（例如恰好是符合 base64 规则的纯明文），原样退回以防乱码
     return cipherText;
   }
 };
