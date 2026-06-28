@@ -17,9 +17,10 @@ const initialTransactions = [
 ];
 
 // ==========================================
-// 全局工具：安全加密 & 解密模块
+// 全局工具：安全加密 & 解密模块 (已修复乱码隐患)
 // ==========================================
-const getSecretKey = () => sessionStorage.getItem('token') || 'fallback_local_secret_key_2026';
+// 修复：绝不能使用动态 token 作为密钥。统一使用固定前端密钥，保证历史数据与未来数据的持久可解密性。
+const getSecretKey = () => 'fallback_local_secret_key_2026';
 
 const encryptText = (text) => {
   if (!text) return '';
@@ -33,16 +34,24 @@ const encryptText = (text) => {
 
 const decryptText = (cipherText) => {
   if (!cipherText) return '';
+  
+  // 兼容性修复 1：如果字符串包含非 base64 字符，说明大概率是旧版未加密的明文，直接返回
+  if (!/^[a-zA-Z0-9+/]*={0,2}$/.test(cipherText)) {
+    return cipherText;
+  }
+
   try {
-    const text = decodeURIComponent(atob(cipherText));
+    const decoded = atob(cipherText);
+    const text = decodeURIComponent(decoded);
     const key = getSecretKey();
     let result = '';
     for (let i = 0; i < text.length; i++) {
       result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
     }
-    return result || '⚠️ 解密失败';
+    return result || cipherText;
   } catch (error) {
-    return '⚠️ 数据异常';
+    // 兼容性修复 2：如果解密或解码过程中抛出异常（例如恰好是符合 base64 规则的纯明文），原样退回以防乱码
+    return cipherText;
   }
 };
 
@@ -384,9 +393,10 @@ const AccountInventory = ({ setToastMessage }) => {
   const [accounts, setAccounts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // 表单状态更新：使用 rawText 替代独立的账号、密码、2FA 字段
+  // 独立的账号粘贴框 与 2FA单独字段
   const [accountFormData, setAccountFormData] = useState({ 
-    rawText: '', 
+    accountData: '', 
+    twoFactor: '',
     cost: '', 
     status: 'alive', 
     date: new Date().toISOString().split('T')[0], 
@@ -413,71 +423,41 @@ const AccountInventory = ({ setToastMessage }) => {
     if (!isLoading) localStorage.setItem('oracle_finance_accounts', JSON.stringify(accounts));
   }, [accounts, isLoading]);
 
-  // 改进的提交处理：支持多行批量解析录入
+  // 处理表单提交 (整体加密账号数据，并附带标识)
   const handleAccSubmit = async (e) => {
     e.preventDefault();
     
-    const raw = accountFormData.rawText?.trim();
-    if (!raw) return alert('请输入账号数据！');
-
-    // 支持多行批量粘贴
-    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
-    const newAccounts = [];
-
-    for (const line of lines) {
-      // 智能识别分隔符
-      let separator = '----';
-      if (line.includes('----')) separator = '----';
-      else if (line.includes('---')) separator = '---';
-      else if (line.includes('|')) separator = '|';
-      else if (line.includes(' ')) separator = ' ';
-
-      const parts = line.split(separator).filter(Boolean);
-      const email = parts[0]?.trim() || '';
-      const password = parts[1]?.trim() || '';
-      const twoFactor = parts[2]?.trim() || '';
-
-      if (email && password) {
-        newAccounts.push({
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-          email: email,
-          password: encryptText(password),
-          twoFactor: twoFactor ? encryptText(twoFactor) : '',
-          cost: parseFloat(accountFormData.cost) || 0,
-          status: accountFormData.status,
-          date: accountFormData.date,
-          description: accountFormData.description
-        });
-      }
+    if (!accountFormData.accountData) {
+      return alert('请粘贴或填写账号数据！');
     }
 
-    if (newAccounts.length === 0) {
-      return alert('无法识别出账号和密码！请确保粘贴的文本包含分隔符（如 ----、| 或空格）。');
-    }
+    const newAccount = {
+      ...accountFormData,
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+      email: encryptText(accountFormData.accountData), // 将合并的文本加密存储于 email 字段
+      password: 'MERGED_DATA', // 标识符，表明该条数据使用的是不拆分的合并格式
+      twoFactor: accountFormData.twoFactor ? encryptText(accountFormData.twoFactor) : '',
+      cost: parseFloat(accountFormData.cost) || 0,
+    };
 
     // 更新本地状态展示
-    setAccounts(prev => [...newAccounts, ...prev]);
+    setAccounts(prev => [newAccount, ...prev]);
 
-    // 并发提交到 D1 数据库
-    let successCount = 0;
-    for (const acc of newAccounts) {
-      try {
-        await fetch('/api/accounts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
-          body: JSON.stringify(acc)
-        });
-        successCount++;
-      } catch (e) { console.log('保存失败', e); }
-    }
-
-    if (setToastMessage) {
-      setToastMessage(`成功识别并加密录入 ${newAccounts.length} 个账号`);
-      setTimeout(() => setToastMessage(''), 2500);
-    }
+    try {
+      await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+        body: JSON.stringify(newAccount)
+      });
+      
+      if (setToastMessage) {
+        setToastMessage('账号已安全加密并录入');
+        setTimeout(() => setToastMessage(''), 2500);
+      }
+    } catch (e) { console.log('保存失败', e); }
     
     // 清空表单，保留日期等选项
-    setAccountFormData(prev => ({ ...prev, rawText: '', cost: '', description: '' }));
+    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', cost: '', description: '' }));
   };
 
   const handleAccDelete = async (id) => {
@@ -529,35 +509,27 @@ const AccountInventory = ({ setToastMessage }) => {
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100"><span className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-1"><DollarSign className="w-4 h-4"/>库存总成本</span><div className="text-2xl font-bold text-gray-800 mt-1">¥{stats.totalCost.toLocaleString()}</div></div>
       </div>
 
-      {/* 录入表单：合并的文本框输入 */}
+      {/* 录入表单：恢复独立字段录入 */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
         <h2 className="text-lg font-semibold text-gray-800 mb-5 flex items-center gap-2">
-          <Plus className="w-5 h-5 text-indigo-500" /> 一键粘贴录入 (自动识别/本地加密)
+          <Plus className="w-5 h-5 text-indigo-500" /> 录入新账号 (安全加密)
         </h2>
-        <form onSubmit={handleAccSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">
-              账号数据粘贴框 (支持多行批量录入，不区分账号密码，直接粘贴) *
-            </label>
-            <textarea 
-              value={accountFormData.rawText} 
-              onChange={e => setAccountFormData(p => ({...p, rawText: e.target.value}))} 
-              className="block w-full rounded-lg border border-gray-300 bg-indigo-50/30 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[90px] font-mono text-gray-700" 
-              placeholder={`请在此处直接粘贴，系统会自动识别拆分。\n格式例如：\nadmin@gmail.com----Password123----2FAKEY\ntest@gmail.com----Password456`}
-              required 
-            />
+        <form onSubmit={handleAccSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="lg:col-span-2">
+            <label className="block text-xs font-medium text-gray-500 mb-1">账号数据 (邮箱、密码等直接粘贴，不再拆分) *</label>
+            <textarea value={accountFormData.accountData} onChange={e=>setAccountFormData(p=>({...p, accountData:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none resize-none h-[42px] font-mono" placeholder="在此粘贴完整账号信息..." required />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e=>setAccountFormData(p=>({...p, cost:e.target.value}))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 outline-none" placeholder="0.00" /></div>
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">初始状态</label><select value={accountFormData.status} onChange={e=>setAccountFormData(p=>({...p, status:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none"><option value="alive">存活</option><option value="banned">封禁</option></select></div>
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">通用备注</label><input type="text" value={accountFormData.description} onChange={e=>setAccountFormData(p=>({...p, description:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none" placeholder="选填" /></div>
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">日期</label><input type="date" value={accountFormData.date} onChange={e=>setAccountFormData(p=>({...p, date:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none" required /></div>
+          <div className="lg:col-span-1">
+            <label className="block text-xs font-medium text-gray-500 mb-1">2FA 密钥 (独立填写，本地加密)</label>
+            <input type="text" value={accountFormData.twoFactor} onChange={e=>setAccountFormData(p=>({...p, twoFactor:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono" placeholder="单独粘贴 2FA" />
           </div>
-          <div className="pt-2">
-            <button type="submit" className="w-full sm:w-auto text-white font-medium rounded-lg text-sm px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors flex items-center justify-center">
-              <Lock className="w-4 h-4 mr-1.5"/> 加密并存入数据库
-            </button>
+          <div className="grid grid-cols-2 gap-2 lg:col-span-1">
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e=>setAccountFormData(p=>({...p, cost:e.target.value}))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">初始状态</label><select value={accountFormData.status} onChange={e=>setAccountFormData(p=>({...p, status:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500"><option value="alive">存活</option><option value="banned">封禁</option></select></div>
           </div>
+          <div className="lg:col-span-2"><label className="block text-xs font-medium text-gray-500 mb-1">机型备注</label><input type="text" value={accountFormData.description} onChange={e=>setAccountFormData(p=>({...p, description:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
+          <div className="lg:col-span-1"><label className="block text-xs font-medium text-gray-500 mb-1">日期</label><input type="date" value={accountFormData.date} onChange={e=>setAccountFormData(p=>({...p, date:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" required /></div>
+          <div className="flex items-end lg:col-span-1"><button type="submit" className="w-full text-white font-medium rounded-lg text-sm px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors flex items-center justify-center"><Lock className="w-4 h-4 mr-1.5"/>加密保存</button></div>
         </form>
       </div>
 
@@ -571,14 +543,15 @@ const AccountInventory = ({ setToastMessage }) => {
           {accounts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {accounts.map((acc) => {
-                // 实时解密数据
-                const decryptedPassword = decryptText(acc.password);
-                const decryptedTwoFactor = decryptText(acc.twoFactor);
+                // 兼容性处理：判断是新版整体加密，还是旧版分离加密
+                let decryptedAccountData = '';
+                if (acc.password === 'MERGED_DATA') {
+                  decryptedAccountData = decryptText(acc.email);
+                } else {
+                  decryptedAccountData = acc.email + '----' + decryptText(acc.password);
+                }
                 
-                // 智能拼接完整展示文本
-                const fullText = acc.twoFactor 
-                  ? `${acc.email}----${decryptedPassword}----${decryptedTwoFactor}`
-                  : `${acc.email}----${decryptedPassword}`;
+                const decryptedTwoFactor = decryptText(acc.twoFactor);
 
                 return (
                   <div key={acc.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all relative group flex flex-col">
@@ -593,23 +566,49 @@ const AccountInventory = ({ setToastMessage }) => {
                       </button>
                     </div>
                     
-                    {/* 文本框呈现完整数据，点击即可复制 */}
-                    <div className="relative mb-4 flex-grow">
+                    {/* 文本框：主账号数据 */}
+                    <div className="relative mb-3 flex-grow">
                       <textarea 
                         readOnly
-                        value={fullText}
-                        onClick={(e) => { e.target.select(); copyToClipboard(fullText, '账号凭证'); }}
-                        className="w-full text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-3 text-gray-700 outline-none resize-none h-20 font-mono transition-colors cursor-pointer"
-                        title="点击全选并复制"
+                        value={decryptedAccountData}
+                        onClick={(e) => { e.target.select(); copyToClipboard(decryptedAccountData, '账号凭证'); }}
+                        className="w-full text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-3 text-gray-700 outline-none resize-none h-[64px] font-mono transition-colors cursor-pointer"
+                        title="点击全选并复制主账号"
                       />
                       <button 
-                        onClick={() => copyToClipboard(fullText, '账号凭证')}
+                        onClick={() => copyToClipboard(decryptedAccountData, '账号凭证')}
                         className="absolute right-2 top-2 p-1.5 bg-white border border-gray-200 rounded text-gray-500 hover:text-indigo-600 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="复制完整凭证"
+                        title="复制主账号数据"
                       >
                         <Copy className="w-4 h-4" />
                       </button>
                     </div>
+
+                    {/* 独立 2FA 显示框 */}
+                    {acc.twoFactor && (
+                      <div className="relative mb-4 group/2fa">
+                        <div className="flex items-stretch h-[38px]">
+                          <span className="flex items-center justify-center bg-indigo-50 text-indigo-600 text-xs font-bold px-3 rounded-l-lg border border-indigo-100 border-r-0">
+                            2FA
+                          </span>
+                          <input 
+                            type="text"
+                            readOnly
+                            value={decryptedTwoFactor}
+                            onClick={(e) => { e.target.select(); copyToClipboard(decryptedTwoFactor, '2FA 密钥'); }}
+                            className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
+                            title="点击复制 2FA"
+                          />
+                        </div>
+                        <button 
+                          onClick={() => copyToClipboard(decryptedTwoFactor, '2FA 密钥')}
+                          className="absolute right-1.5 top-1.5 p-1 bg-white border border-indigo-100 rounded text-indigo-400 hover:text-indigo-600 shadow-sm opacity-0 group-hover/2fa:opacity-100 transition-opacity"
+                          title="复制 2FA 密钥"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                     
                     {/* 底部信息与操作 */}
                     <div className="flex justify-between items-center text-sm mb-3">
