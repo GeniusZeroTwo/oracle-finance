@@ -233,7 +233,6 @@ const FinanceDashboard = () => {
   };
 
   const stats = useMemo(() => {
-    // 修复：使用“分”作为基础单位（乘以100取整）进行运算，彻底解决 JavaScript 浮点数精度丢失隐患
     let totalIncomeCents = 0, totalExpenseCents = 0, thisMonthIncomeCents = 0, thisMonthExpenseCents = 0;
     const currentMonth = new Date().toISOString().slice(0, 7);
     transactions.forEach(t => {
@@ -263,12 +262,10 @@ const FinanceDashboard = () => {
       const month = t.date.slice(0, 7); 
       if (!grouped[month]) grouped[month] = { name: month, income: 0, expense: 0 };
       
-      // 图表统计同样修复精度隐患
       const amountCents = Math.round((t.amount || 0) * 100);
       t.type === 'income' ? grouped[month].income += amountCents : grouped[month].expense += amountCents;
     });
     
-    // 计算完成后除以 100 还原为显示金额
     return Object.values(grouped).map(g => ({
       ...g,
       income: g.income / 100,
@@ -280,7 +277,6 @@ const FinanceDashboard = () => {
 
   return (
     <div className="space-y-6">
-      {/* 修改了 lg:grid-cols-4 为 lg:grid-cols-5，并新增了"历史总利润"卡片 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
           <span className="text-gray-500 text-sm font-medium mb-1 block">历史总收入</span>
@@ -382,12 +378,20 @@ const FinanceDashboard = () => {
 };
 
 // ==========================================
-// 独立组件 4：账号库存 (AccountInventory) - 引入前端 AES 加密
+// 独立组件 4：账号库存 (AccountInventory) - 升级版 (卡片式 & 批量粘贴)
 // ==========================================
 const AccountInventory = ({ setToastMessage }) => {
   const [accounts, setAccounts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [accountFormData, setAccountFormData] = useState({ email: '', password: '', twoFactor: '', cost: '', status: 'alive', date: new Date().toISOString().split('T')[0], description: '' });
+  
+  // 表单状态更新：使用 rawText 替代独立的账号、密码、2FA 字段
+  const [accountFormData, setAccountFormData] = useState({ 
+    rawText: '', 
+    cost: '', 
+    status: 'alive', 
+    date: new Date().toISOString().split('T')[0], 
+    description: '' 
+  });
 
   useEffect(() => {
     const fetchAccounts = async () => {
@@ -395,7 +399,6 @@ const AccountInventory = ({ setToastMessage }) => {
         const response = await fetch('/api/accounts', { headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } });
         if (response.ok) {
           const data = await response.json();
-          // 数据在展示时进行解密（不修改原状态，仅在渲染时解密）
           setAccounts(data);
         } else throw new Error('API未就绪');
       } catch (error) {
@@ -410,30 +413,71 @@ const AccountInventory = ({ setToastMessage }) => {
     if (!isLoading) localStorage.setItem('oracle_finance_accounts', JSON.stringify(accounts));
   }, [accounts, isLoading]);
 
+  // 改进的提交处理：支持多行批量解析录入
   const handleAccSubmit = async (e) => {
     e.preventDefault();
-    if (!accountFormData.email || !accountFormData.password) return alert('账号和密码不能为空！');
-
-    // 🌟 核心：提交前进行 AES 加密
-    const newAccount = {
-      ...accountFormData,
-      id: Date.now().toString(),
-      password: encryptText(accountFormData.password),
-      twoFactor: accountFormData.twoFactor ? encryptText(accountFormData.twoFactor) : '',
-      cost: parseFloat(accountFormData.cost) || 0,
-    };
-
-    setAccounts(prev => [newAccount, ...prev]);
-
-    try {
-      await fetch('/api/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
-        body: JSON.stringify(newAccount)
-      });
-    } catch (e) { console.log('保存账号到本地'); }
     
-    setAccountFormData(prev => ({ ...prev, email: '', password: '', twoFactor: '', cost: '', description: '' }));
+    const raw = accountFormData.rawText?.trim();
+    if (!raw) return alert('请输入账号数据！');
+
+    // 支持多行批量粘贴
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    const newAccounts = [];
+
+    for (const line of lines) {
+      // 智能识别分隔符
+      let separator = '----';
+      if (line.includes('----')) separator = '----';
+      else if (line.includes('---')) separator = '---';
+      else if (line.includes('|')) separator = '|';
+      else if (line.includes(' ')) separator = ' ';
+
+      const parts = line.split(separator).filter(Boolean);
+      const email = parts[0]?.trim() || '';
+      const password = parts[1]?.trim() || '';
+      const twoFactor = parts[2]?.trim() || '';
+
+      if (email && password) {
+        newAccounts.push({
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+          email: email,
+          password: encryptText(password),
+          twoFactor: twoFactor ? encryptText(twoFactor) : '',
+          cost: parseFloat(accountFormData.cost) || 0,
+          status: accountFormData.status,
+          date: accountFormData.date,
+          description: accountFormData.description
+        });
+      }
+    }
+
+    if (newAccounts.length === 0) {
+      return alert('无法识别出账号和密码！请确保粘贴的文本包含分隔符（如 ----、| 或空格）。');
+    }
+
+    // 更新本地状态展示
+    setAccounts(prev => [...newAccounts, ...prev]);
+
+    // 并发提交到 D1 数据库
+    let successCount = 0;
+    for (const acc of newAccounts) {
+      try {
+        await fetch('/api/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+          body: JSON.stringify(acc)
+        });
+        successCount++;
+      } catch (e) { console.log('保存失败', e); }
+    }
+
+    if (setToastMessage) {
+      setToastMessage(`成功识别并加密录入 ${newAccounts.length} 个账号`);
+      setTimeout(() => setToastMessage(''), 2500);
+    }
+    
+    // 清空表单，保留日期等选项
+    setAccountFormData(prev => ({ ...prev, rawText: '', cost: '', description: '' }));
   };
 
   const handleAccDelete = async (id) => {
@@ -454,7 +498,7 @@ const AccountInventory = ({ setToastMessage }) => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     if(setToastMessage) {
-      setToastMessage(`${type}已复制`);
+      setToastMessage(`完整${type}已复制`);
       setTimeout(() => setToastMessage(''), 2000);
     }
   };
@@ -477,6 +521,7 @@ const AccountInventory = ({ setToastMessage }) => {
 
   return (
     <div className="space-y-6">
+      {/* 顶部统计卡片 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100"><span className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-1"><Box className="w-4 h-4"/>总录入</span><div className="text-2xl font-bold text-indigo-600 mt-1">{stats.totalAccounts} 个</div></div>
         <div className="bg-white rounded-xl p-5 shadow-sm border border-green-100 bg-green-50/30"><span className="text-green-600 text-sm font-medium mb-1 flex items-center gap-1"><CheckCircle2 className="w-4 h-4"/>当前存活</span><div className="text-2xl font-bold text-green-700 mt-1">{stats.aliveAccounts} 个</div></div>
@@ -484,66 +529,112 @@ const AccountInventory = ({ setToastMessage }) => {
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100"><span className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-1"><DollarSign className="w-4 h-4"/>库存总成本</span><div className="text-2xl font-bold text-gray-800 mt-1">¥{stats.totalCost.toLocaleString()}</div></div>
       </div>
 
+      {/* 录入表单：合并的文本框输入 */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-        <h2 className="text-lg font-semibold text-gray-800 mb-5 flex items-center gap-2"><Plus className="w-5 h-5 text-indigo-500" /> 录入新账号 (安全加密)</h2>
-        <form onSubmit={handleAccSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">注册邮箱 / 账号 *</label><input type="text" value={accountFormData.email} onChange={e=>setAccountFormData(p=>({...p, email:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500" required /></div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">登录密码 (本地加密) *</label><input type="text" value={accountFormData.password} onChange={e=>setAccountFormData(p=>({...p, password:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500" required /></div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">2FA 密钥 (本地加密)</label><input type="text" value={accountFormData.twoFactor} onChange={e=>setAccountFormData(p=>({...p, twoFactor:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500" /></div>
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e=>setAccountFormData(p=>({...p, cost:e.target.value}))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm" /></div>
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">初始状态</label><select value={accountFormData.status} onChange={e=>setAccountFormData(p=>({...p, status:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm"><option value="alive">存活</option><option value="banned">封禁</option></select></div>
+        <h2 className="text-lg font-semibold text-gray-800 mb-5 flex items-center gap-2">
+          <Plus className="w-5 h-5 text-indigo-500" /> 一键粘贴录入 (自动识别/本地加密)
+        </h2>
+        <form onSubmit={handleAccSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              账号数据粘贴框 (支持多行批量录入，不区分账号密码，直接粘贴) *
+            </label>
+            <textarea 
+              value={accountFormData.rawText} 
+              onChange={e => setAccountFormData(p => ({...p, rawText: e.target.value}))} 
+              className="block w-full rounded-lg border border-gray-300 bg-indigo-50/30 p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y min-h-[90px] font-mono text-gray-700" 
+              placeholder={`请在此处直接粘贴，系统会自动识别拆分。\n格式例如：\nadmin@gmail.com----Password123----2FAKEY\ntest@gmail.com----Password456`}
+              required 
+            />
           </div>
-          <div className="lg:col-span-2"><label className="block text-xs font-medium text-gray-500 mb-1">机型备注</label><input type="text" value={accountFormData.description} onChange={e=>setAccountFormData(p=>({...p, description:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm" /></div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">日期</label><input type="date" value={accountFormData.date} onChange={e=>setAccountFormData(p=>({...p, date:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm" required /></div>
-          <div className="flex items-end"><button type="submit" className="w-full text-white font-medium rounded-lg text-sm px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700"><Lock className="w-3 h-3 inline mr-1"/>加密保存</button></div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e=>setAccountFormData(p=>({...p, cost:e.target.value}))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 outline-none" placeholder="0.00" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">初始状态</label><select value={accountFormData.status} onChange={e=>setAccountFormData(p=>({...p, status:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none"><option value="alive">存活</option><option value="banned">封禁</option></select></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">通用备注</label><input type="text" value={accountFormData.description} onChange={e=>setAccountFormData(p=>({...p, description:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none" placeholder="选填" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">日期</label><input type="date" value={accountFormData.date} onChange={e=>setAccountFormData(p=>({...p, date:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none" required /></div>
+          </div>
+          <div className="pt-2">
+            <button type="submit" className="w-full sm:w-auto text-white font-medium rounded-lg text-sm px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors flex items-center justify-center">
+              <Lock className="w-4 h-4 mr-1.5"/> 加密并存入数据库
+            </button>
+          </div>
         </form>
       </div>
 
+      {/* 卡片式库存展示：不再割裂账号密码 */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center"><h2 className="text-lg font-semibold text-gray-800">加密库存列表</h2></div>
-        {accounts.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-500">
-              <thead className="text-xs text-gray-400 uppercase bg-gray-50"><tr><th className="px-5 py-3 font-medium">日期</th><th className="px-5 py-3 font-medium w-64">账号凭证 (点击复制解密文)</th><th className="px-5 py-3 font-medium">备注</th><th className="px-5 py-3 font-medium">成本</th><th className="px-5 py-3 font-medium text-center">状态</th><th className="px-5 py-3 font-medium text-center">操作</th></tr></thead>
-              <tbody className="divide-y divide-gray-100">
-                {accounts.map((acc) => {
-                  // 渲染时进行解密展示
-                  const decryptedPassword = decryptText(acc.password);
-                  const decryptedTwoFactor = decryptText(acc.twoFactor);
-                  
-                  return (
-                  <tr key={acc.id} className="bg-white hover:bg-gray-50">
-                    <td className="px-5 py-4 whitespace-nowrap text-xs">{acc.date}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center gap-2 group cursor-pointer" onClick={() => copyToClipboard(acc.email, '账号')}><span className="font-medium text-gray-900 truncate max-w-[180px]">{acc.email}</span><Copy className="w-3.5 h-3.5 text-gray-300 group-hover:text-indigo-500" /></div>
-                        <div className="flex items-center gap-2 group cursor-pointer" onClick={() => copyToClipboard(decryptedPassword, '密码')}>
-                          <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">密码: {decryptedPassword === '⚠️ 数据异常' ? '***' : decryptedPassword}</span>
-                          <Copy className="w-3.5 h-3.5 text-gray-300 group-hover:text-indigo-500" />
-                        </div>
-                        {acc.twoFactor && (
-                          <div className="flex items-center gap-2 group cursor-pointer" onClick={() => copyToClipboard(decryptedTwoFactor, '2FA 密钥')}>
-                            <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">2FA: {decryptedTwoFactor === '⚠️ 数据异常' ? '***' : decryptedTwoFactor.slice(0,6)+'...'}</span>
-                            <Copy className="w-3.5 h-3.5 text-gray-300 group-hover:text-indigo-500" />
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-gray-700 text-sm">{acc.description || '-'}</td>
-                    <td className="px-5 py-4">¥{Number(acc.cost).toLocaleString()}</td>
-                    <td className="px-5 py-4 text-center">
-                      <button onClick={() => handleAccStatusToggle(acc.id, acc.status)} className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border ${acc.status === 'alive' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+        <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+          <h2 className="text-lg font-semibold text-gray-800">加密库存 (卡片视图)</h2>
+        </div>
+        
+        <div className="p-6">
+          {accounts.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {accounts.map((acc) => {
+                // 实时解密数据
+                const decryptedPassword = decryptText(acc.password);
+                const decryptedTwoFactor = decryptText(acc.twoFactor);
+                
+                // 智能拼接完整展示文本
+                const fullText = acc.twoFactor 
+                  ? `${acc.email}----${decryptedPassword}----${decryptedTwoFactor}`
+                  : `${acc.email}----${decryptedPassword}`;
+
+                return (
+                  <div key={acc.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all relative group flex flex-col">
+                    {/* 卡片头部 */}
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs font-medium text-gray-400">{acc.date}</span>
+                      <button 
+                        onClick={() => handleAccStatusToggle(acc.id, acc.status)} 
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors ${acc.status === 'alive' ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}
+                      >
                         {acc.status === 'alive' ? <><CheckCircle2 className="w-3 h-3 mr-1"/>存活</> : <><Ban className="w-3 h-3 mr-1"/>封禁</>}
                       </button>
-                    </td>
-                    <td className="px-5 py-4 text-center"><button onClick={() => handleAccDelete(acc.id)} className="text-gray-400 hover:text-red-500 p-2"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-        ) : <div className="p-10 text-center text-gray-400">当前库存空空如也。</div>}
+                    </div>
+                    
+                    {/* 文本框呈现完整数据，点击即可复制 */}
+                    <div className="relative mb-4 flex-grow">
+                      <textarea 
+                        readOnly
+                        value={fullText}
+                        onClick={(e) => { e.target.select(); copyToClipboard(fullText, '账号凭证'); }}
+                        className="w-full text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-3 text-gray-700 outline-none resize-none h-20 font-mono transition-colors cursor-pointer"
+                        title="点击全选并复制"
+                      />
+                      <button 
+                        onClick={() => copyToClipboard(fullText, '账号凭证')}
+                        className="absolute right-2 top-2 p-1.5 bg-white border border-gray-200 rounded text-gray-500 hover:text-indigo-600 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="复制完整凭证"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                    
+                    {/* 底部信息与操作 */}
+                    <div className="flex justify-between items-center text-sm mb-3">
+                      <span className="text-gray-500 font-medium">成本: ¥{Number(acc.cost).toLocaleString()}</span>
+                      <span className="text-gray-500 truncate max-w-[130px] bg-gray-100 px-2 py-0.5 rounded text-xs" title={acc.description || '无备注'}>
+                        {acc.description || '无备注'}
+                      </span>
+                    </div>
+                    
+                    <div className="border-t border-gray-100 pt-3 flex justify-end">
+                       <button onClick={() => handleAccDelete(acc.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="彻底删除此账号">
+                         <Trash2 className="w-4 h-4" />
+                       </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="py-12 text-center text-gray-400 flex flex-col items-center">
+               <Box className="w-12 h-12 mb-3 text-gray-200" />
+               <p>当前库存空空如也，请在上方面板录入</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
