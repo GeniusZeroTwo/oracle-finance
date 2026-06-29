@@ -23,11 +23,12 @@ export async function onRequestPost(context) {
 
     // 3. 准备 Telegram 发送所需的环境变量
     const botToken = env.TG_BOT_TOKEN;
-    const chatId = env.TG_CHAT_ID;
+    // 严格使用 ADMIN_CHAT_ID，与 README 保持完全一致
+    const chatId = env.ADMIN_CHAT_ID;
 
     if (!botToken || !chatId) {
-      console.error("环境变量 TG_BOT_TOKEN 或 TG_CHAT_ID 未配置");
-      return new Response(JSON.stringify({ error: "系统配置错误，无法发送验证码" }), { 
+      console.error("环境变量未配置。目前读取到 BOT_TOKEN:", !!botToken, "CHAT_ID (ADMIN_CHAT_ID):", !!chatId);
+      return new Response(JSON.stringify({ error: "系统配置错误，无法发送验证码 (缺失 TG 机器人参数或 ADMIN_CHAT_ID)" }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -52,7 +53,7 @@ export async function onRequestPost(context) {
     if (!tgResponse.ok) {
       const errorText = await tgResponse.text();
       console.error("Telegram API 发送失败:", errorText);
-      return new Response(JSON.stringify({ error: "Telegram 推送失败，请检查机器人配置" }), { 
+      return new Response(JSON.stringify({ error: "Telegram 推送失败，请检查机器人配置是否正确" }), { 
         status: 502,
         headers: { 'Content-Type': 'application/json' }
       });
