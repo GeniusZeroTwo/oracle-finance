@@ -3,20 +3,7 @@
 export async function onRequest(context) {
   const { request, env } = context;
   
-  // ==========================================
-  // 安全拦截器 (Middleware 逻辑)
-  // ==========================================
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return new Response("未授权访问，缺失 Token", { status: 401 });
-  }
-  
-  const token = authHeader.split(' ')[1];
-  // 去 KV 检查这个 Token 是否有效
-  const isValidSession = await env.AUTH_KV.get(`session:${token}`);
-  if (!isValidSession) {
-    return new Response("登录已过期，请重新验证", { status: 401 });
-  }
+  // 鉴权已由 /api/_middleware.js 统一处理
 
   // ==========================================
   // 业务逻辑 (D1 数据库读写)
