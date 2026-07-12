@@ -1,3 +1,5 @@
+import { encryptData } from '../crypto.js';
+
 export async function onRequest(context) {
   const { request, env, params } = context;
   
@@ -44,12 +46,16 @@ export async function onRequest(context) {
   if (request.method === 'PUT') {
     try {
       const data = await request.json();
+      
+      const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
+      const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
+
       await db.prepare(
         "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ? WHERE id = ?"
       ).bind(
-        data.email,
-        data.password,
-        data.twoFactor || '',
+        encryptedEmail,
+        'MERGED_DATA',
+        encryptedTwoFactor,
         data.cost || 0,
         data.status || 'alive',
         data.date,
