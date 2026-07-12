@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { 
   Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock, 
   KeyRound, ShieldCheck, RefreshCw, Box, LayoutDashboard, Copy, 
-  CheckCircle2, Ban, AlertCircle, LogOut, Edit, MapPin
+  CheckCircle2, Ban, AlertCircle, LogOut, Edit, MapPin, Search
 } from 'lucide-react';
 
 // ==========================================
@@ -418,6 +418,7 @@ const FinanceDashboard = () => {
 const AccountInventory = ({ setToastMessage }) => {
   const [accounts, setAccounts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // 用于控制卡片编辑状态的 State
   const [editingId, setEditingId] = useState(null);
@@ -591,6 +592,28 @@ const AccountInventory = ({ setToastMessage }) => {
     };
   }, [accounts]);
 
+  const displayAccounts = useMemo(() => {
+    return accounts.map(acc => {
+      let decryptedAccountData = '';
+      if (acc.password === 'MERGED_DATA') {
+        decryptedAccountData = decryptText(acc.email);
+      } else {
+        decryptedAccountData = acc.email + '----' + decryptText(acc.password);
+      }
+      const decryptedTwoFactor = decryptText(acc.twoFactor);
+      return { ...acc, decryptedAccountData, decryptedTwoFactor };
+    }).filter(acc => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        acc.decryptedAccountData.toLowerCase().includes(q) ||
+        (acc.description || '').toLowerCase().includes(q) ||
+        (acc.region || '').toLowerCase().includes(q) ||
+        (acc.date || '').includes(q)
+      );
+    });
+  }, [accounts, searchQuery]);
+
   if (isLoading) return <div className="text-center text-gray-500 py-10">解密库存数据中...</div>;
 
   return (
@@ -630,23 +653,25 @@ const AccountInventory = ({ setToastMessage }) => {
 
       {/* 卡片式库存展示：不再割裂账号密码 */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+        <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h2 className="text-lg font-semibold text-gray-800">加密库存 (卡片视图)</h2>
+          <div className="relative w-full sm:w-auto">
+            <input 
+              type="text" 
+              placeholder="搜索账号、备注或区域..." 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full sm:w-72 pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 bg-white shadow-sm"
+            />
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          </div>
         </div>
         
         <div className="p-6">
-          {accounts.length > 0 ? (
+          {displayAccounts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {accounts.map((acc) => {
-                // 兼容性处理：判断是新版整体加密，还是旧版分离加密
-                let decryptedAccountData = '';
-                if (acc.password === 'MERGED_DATA') {
-                  decryptedAccountData = decryptText(acc.email);
-                } else {
-                  decryptedAccountData = acc.email + '----' + decryptText(acc.password);
-                }
-                
-                const decryptedTwoFactor = decryptText(acc.twoFactor);
+              {displayAccounts.map((acc) => {
+                const { decryptedAccountData, decryptedTwoFactor } = acc;
 
                 // ==========================================
                 // 渲染状态 1：编辑模式卡片
@@ -791,7 +816,7 @@ const AccountInventory = ({ setToastMessage }) => {
           ) : (
             <div className="py-12 text-center text-gray-400 flex flex-col items-center">
                <Box className="w-12 h-12 mb-3 text-gray-200" />
-               <p>当前库存空空如也，请在上方面板录入</p>
+               <p>{accounts.length > 0 ? "未找到匹配的账号记录" : "当前库存空空如也，请在上方面板录入"}</p>
             </div>
           )}
         </div>
