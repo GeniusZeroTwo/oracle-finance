@@ -421,8 +421,15 @@ const AccountInventory = ({ setToastMessage }) => {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || '录入请求失败');
+        let errorMsg = '录入请求失败，状态码: ' + res.status;
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch (parseError) {
+          const rawText = await res.text();
+          errorMsg += '\n非JSON返回值: ' + rawText.substring(0, 100);
+        }
+        throw new Error(errorMsg);
       }
 
       if (setToastMessage) {
