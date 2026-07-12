@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { 
   Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock, 
   KeyRound, ShieldCheck, RefreshCw, Box, LayoutDashboard, Copy, 
-  CheckCircle2, Ban, AlertCircle, LogOut, Edit
+  CheckCircle2, Ban, AlertCircle, LogOut, Edit, MapPin
 } from 'lucide-react';
 
 // ==========================================
@@ -421,7 +421,7 @@ const AccountInventory = ({ setToastMessage }) => {
 
   // 用于控制卡片编辑状态的 State
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', cost: '', status: 'alive', description: '' });
+  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', cost: '', status: 'alive', description: '', region: '' });
   
   // 独立的账号粘贴框 与 2FA单独字段
   const [accountFormData, setAccountFormData] = useState({ 
@@ -430,7 +430,8 @@ const AccountInventory = ({ setToastMessage }) => {
     cost: '', 
     status: 'alive', 
     date: new Date().toISOString().split('T')[0], 
-    description: '' 
+    description: '',
+    region: ''
   });
 
   useEffect(() => {
@@ -468,6 +469,7 @@ const AccountInventory = ({ setToastMessage }) => {
       password: 'MERGED_DATA', // 标识符，表明该条数据使用的是不拆分的合并格式
       twoFactor: accountFormData.twoFactor ? encryptText(accountFormData.twoFactor) : '',
       cost: parseFloat(accountFormData.cost) || 0,
+      region: accountFormData.region || '',
     };
 
     // 更新本地状态展示
@@ -487,7 +489,7 @@ const AccountInventory = ({ setToastMessage }) => {
     } catch (e) { console.log('保存失败', e); }
     
     // 清空表单，保留日期等选项
-    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', cost: '', description: '' }));
+    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', cost: '', description: '', region: '' }));
   };
 
   const handleAccDelete = async (id) => {
@@ -518,7 +520,8 @@ const AccountInventory = ({ setToastMessage }) => {
       twoFactor: decryptText(acc.twoFactor),
       cost: acc.cost,
       status: acc.status,
-      description: acc.description || ''
+      description: acc.description || '',
+      region: acc.region || ''
     });
   };
 
@@ -537,6 +540,7 @@ const AccountInventory = ({ setToastMessage }) => {
       cost: parseFloat(editForm.cost) || 0,
       status: editForm.status,
       description: editForm.description,
+      region: editForm.region || '',
       date: accounts.find(a => a.id === id).date // 保持原始录入日期
     };
 
@@ -617,7 +621,8 @@ const AccountInventory = ({ setToastMessage }) => {
             <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e=>setAccountFormData(p=>({...p, cost:e.target.value}))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
             <div><label className="block text-xs font-medium text-gray-500 mb-1">初始状态</label><select value={accountFormData.status} onChange={e=>setAccountFormData(p=>({...p, status:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500"><option value="alive">存活</option><option value="banned">封禁</option></select></div>
           </div>
-          <div className="lg:col-span-2"><label className="block text-xs font-medium text-gray-500 mb-1">机型备注</label><input type="text" value={accountFormData.description} onChange={e=>setAccountFormData(p=>({...p, description:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
+          <div className="lg:col-span-1"><label className="block text-xs font-medium text-gray-500 mb-1">机型备注</label><input type="text" value={accountFormData.description} onChange={e=>setAccountFormData(p=>({...p, description:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
+          <div className="lg:col-span-1"><label className="block text-xs font-medium text-gray-500 mb-1">区域</label><input type="text" value={accountFormData.region} onChange={e=>setAccountFormData(p=>({...p, region:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" placeholder="如: 首尔" /></div>
           <div className="lg:col-span-1"><label className="block text-xs font-medium text-gray-500 mb-1">日期</label><input type="date" value={accountFormData.date} onChange={e=>setAccountFormData(p=>({...p, date:e.target.value}))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" required /></div>
           <div className="flex items-end lg:col-span-1"><button type="submit" className="w-full text-white font-medium rounded-lg text-sm px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors flex items-center justify-center"><Lock className="w-4 h-4 mr-1.5"/>加密保存</button></div>
         </form>
@@ -661,10 +666,14 @@ const AccountInventory = ({ setToastMessage }) => {
                         <input value={editForm.twoFactor} onChange={e=>setEditForm({...editForm, twoFactor: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2.5 outline-none font-mono focus:ring-1 focus:ring-indigo-400" />
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-3 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">成本 (¥)</label>
                           <input type="number" step="0.01" value={editForm.cost} onChange={e=>setEditForm({...editForm, cost: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-indigo-500 mb-1">区域</label>
+                          <input type="text" value={editForm.region} onChange={e=>setEditForm({...editForm, region: e.target.value})} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" placeholder="如: 首尔" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">状态</label>
@@ -695,7 +704,15 @@ const AccountInventory = ({ setToastMessage }) => {
                   <div key={acc.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all relative group flex flex-col">
                     {/* 卡片头部 */}
                     <div className="flex justify-between items-center mb-3">
-                      <span className="text-xs font-medium text-gray-400">{acc.date}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-400">{acc.date}</span>
+                        {acc.region && (
+                          <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 flex items-center">
+                            <MapPin className="w-3 h-3 mr-0.5"/>
+                            {acc.region}
+                          </span>
+                        )}
+                      </div>
                       <button 
                         onClick={() => handleAccStatusToggle(acc.id, acc.status)} 
                         className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors ${acc.status === 'alive' ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}
