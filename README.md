@@ -13,3 +13,4 @@ Variable name: ADMIN_CHAT_ID | Value: 您接收验证码的 TG 数字ID
 ```bash
 CREATE TABLE accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL, password TEXT NOT NULL, twoFactor TEXT, cost REAL, status TEXT DEFAULT 'alive', date TEXT NOT NULL, description TEXT);
 ```
+  
