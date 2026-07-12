@@ -40,8 +40,12 @@ export async function onRequestPost(context) {
     // 使用 Web Crypto API 生成高强度随机 UUID
     const token = crypto.randomUUID();
 
-    // 5. 将 Token 存入 KV，代表用户已登录，有效期设置 7 天 (60 * 60 * 24 * 7 = 604800 秒)
-    await env.AUTH_KV.put(`session:${token}`, 'valid', { expirationTtl: 604800 });
+    // 5. 将 Token 以及绑定的设备环境存入 KV，有效期设置 7 天 (60 * 60 * 24 * 7 = 604800 秒)
+    const sessionData = JSON.stringify({
+      ip: request.headers.get('CF-Connecting-IP') || 'unknown',
+      userAgent: request.headers.get('User-Agent') || 'unknown'
+    });
+    await env.AUTH_KV.put(`session:${token}`, sessionData, { expirationTtl: 604800 });
 
     // 6. 安全加固：验证成功后，立即销毁当前验证码（防止验证码重放攻击）
     await env.AUTH_KV.delete('code:admin');
