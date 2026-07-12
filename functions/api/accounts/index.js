@@ -59,7 +59,7 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ success: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
     }
 
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: `Method not allowed in index.js: ${request.method}` }), { status: 405, headers: { 'Content-Type': 'application/json' } });
 
   } catch (e) {
     console.error('accounts.js 顶层错误:', e.message, e.stack);
