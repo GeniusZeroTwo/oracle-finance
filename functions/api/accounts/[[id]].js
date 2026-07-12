@@ -7,7 +7,7 @@ export async function onRequest(context) {
 
   try {
     const db = env.DB;
-    const id = params.id[0];
+    const id = params.id;
 
     // DELETE: 删除账号记录
     if (request.method === 'DELETE') {
