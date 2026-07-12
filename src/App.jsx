@@ -33,8 +33,9 @@ const Login = ({ setAuth }) => {
     setLoginError(''); setLoginMessage(''); setIsSendingCode(true);
     try {
       const res = await fetch('/api/auth/send-code', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      if (!res.ok) throw new Error((await res.json()).error || '请求失败');
-      setLoginMessage((await res.json()).message || '验证码已发送，请查看 Telegram。');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '请求失败');
+      setLoginMessage(data.message || '验证码已发送，请查看 Telegram。');
       setLoginStep(2);
     } catch (error) {
       setLoginError(error.message || '发送失败，请检查网络或配置');
@@ -53,8 +54,8 @@ const Login = ({ setAuth }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: verificationCode })
       });
-      if (!res.ok) throw new Error((await res.json()).error || '验证码错误');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '验证码错误');
       sessionStorage.setItem('oracle_finance_auth', 'true');
       sessionStorage.setItem('token', data.token);
       setAuth(true);
@@ -209,13 +210,14 @@ const FinanceDashboard = () => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     transactions.forEach(t => {
       const amountCents = Math.round((t.amount || 0) * 100);
+      const tDate = t.date || '';
       if (t.type === 'income') {
         totalIncomeCents += amountCents;
-        if (t.date.startsWith(currentMonth)) thisMonthIncomeCents += amountCents;
+        if (tDate.startsWith(currentMonth)) thisMonthIncomeCents += amountCents;
       }
       else {
         totalExpenseCents += amountCents;
-        if (t.date.startsWith(currentMonth)) thisMonthExpenseCents += amountCents;
+        if (tDate.startsWith(currentMonth)) thisMonthExpenseCents += amountCents;
       }
     });
     return {
@@ -231,7 +233,8 @@ const FinanceDashboard = () => {
   const chartData = useMemo(() => {
     const grouped = {};
     transactions.forEach(t => {
-      const month = t.date.slice(0, 7);
+      const month = (t.date || '').slice(0, 7);
+      if (!month) return;
       if (!grouped[month]) grouped[month] = { name: month, income: 0, expense: 0 };
 
       const amountCents = Math.round((t.amount || 0) * 100);
@@ -434,7 +437,6 @@ const AccountInventory = ({ setToastMessage }) => {
 
       if (setToastMessage) {
         setToastMessage('账号已安全加密并录入');
-        setTimeout(() => setToastMessage(''), 2500);
       }
     } catch (e) {
       console.log('保存失败', e);
@@ -507,7 +509,6 @@ const AccountInventory = ({ setToastMessage }) => {
 
       if (setToastMessage) {
         setToastMessage('修改已重新加密保存');
-        setTimeout(() => setToastMessage(''), 2000);
       }
     } catch (e) {
       console.error('Update failed', e);
@@ -520,7 +521,6 @@ const AccountInventory = ({ setToastMessage }) => {
     navigator.clipboard.writeText(text);
     if (setToastMessage) {
       setToastMessage(`完整${type}已复制`);
-      setTimeout(() => setToastMessage(''), 2000);
     }
   };
 
@@ -543,8 +543,8 @@ const AccountInventory = ({ setToastMessage }) => {
       // 后端已自动解密，统一返回明文
       return {
         ...acc,
-        decryptedAccountData: acc.email,
-        decryptedTwoFactor: acc.twoFactor
+        decryptedAccountData: acc.email || '',
+        decryptedTwoFactor: acc.twoFactor || ''
       };
     }).filter(acc => {
       if (!searchQuery) return true;
@@ -778,6 +778,13 @@ export default function App() {
     return sessionStorage.getItem('oracle_finance_auth') === 'true';
   });
   const [toastMessage, setToastMessage] = useState('');
+  const toastTimeoutRef = React.useRef(null);
+
+  const showToast = React.useCallback((msg, duration = 2500) => {
+    setToastMessage(msg);
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    if (msg) toastTimeoutRef.current = setTimeout(() => setToastMessage(''), duration);
+  }, []);
 
   const handleLogout = () => {
     sessionStorage.removeItem('oracle_finance_auth');
@@ -796,7 +803,7 @@ export default function App() {
         {/* 受保护的路由容器 */}
         <Route element={isAuthenticated ? <Layout handleLogout={handleLogout} toastMessage={toastMessage} /> : <Navigate to="/login" replace />}>
           <Route path="/finance" element={<FinanceDashboard />} />
-          <Route path="/inventory" element={<AccountInventory setToastMessage={setToastMessage} />} />
+          <Route path="/inventory" element={<AccountInventory setToastMessage={showToast} />} />
 
           {/* 默认重定向 */}
           <Route path="/" element={<Navigate to="/finance" replace />} />
