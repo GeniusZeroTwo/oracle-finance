@@ -6,7 +6,7 @@ export async function onRequestDelete(context) {
     // 鉴权已由 /api/_middleware.js 统一处理
 
     // 2. 执行删除
-    const id = params.id[0];
+    const id = params.id;
     await env.DB.prepare("DELETE FROM transactions WHERE id = ?").bind(id).run();
     
     return new Response(JSON.stringify({ success: true }), { 
