@@ -422,11 +422,11 @@ const AccountInventory = ({ setToastMessage }) => {
 
       if (!res.ok) {
         let errorMsg = '录入请求失败，状态码: ' + res.status;
+        const rawText = await res.text();
         try {
-          const errorData = await res.json();
+          const errorData = JSON.parse(rawText);
           errorMsg = errorData.error || errorMsg;
         } catch (parseError) {
-          const rawText = await res.text();
           errorMsg += '\n非JSON返回值: ' + rawText.substring(0, 100);
         }
         throw new Error(errorMsg);
