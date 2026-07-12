@@ -1,21 +1,77 @@
-import { encryptData } from '../crypto.js';
+import { encryptData, decryptData } from '../crypto.js';
 
 export async function onRequest(context) {
   const { request, env, params } = context;
   
-  // 鉴权已由 /api/_middleware.js 统一处理
-
   try {
     const db = env.DB;
-    const id = params.id;
+    // [[id]] catch-all gives an array, or undefined if no path segments
+    const id = (params.id && params.id.length > 0) ? params.id[0] : undefined;
 
-    // DELETE: 删除账号记录
+    // ==========================================
+    // 根路径路由 (/api/accounts)
+    // ==========================================
+    if (!id) {
+      if (request.method === 'GET') {
+        const { results } = await db.prepare("SELECT * FROM accounts ORDER BY date DESC").all();
+
+        const decryptedResults = await Promise.all(results.map(async (acc) => {
+          let decryptedAccountData = '';
+          if (acc.password === 'MERGED_DATA') {
+            decryptedAccountData = await decryptData(acc.email, env.AES_SECRET_KEY);
+          } else {
+            const decryptedOldPassword = await decryptData(acc.password, env.AES_SECRET_KEY);
+            decryptedAccountData = acc.email + '----' + decryptedOldPassword;
+          }
+          const decryptedTwoFactor = await decryptData(acc.twoFactor, env.AES_SECRET_KEY);
+
+          return {
+            ...acc,
+            email: decryptedAccountData,
+            password: 'MERGED_DATA',
+            twoFactor: decryptedTwoFactor
+          };
+        }));
+
+        return new Response(JSON.stringify(decryptedResults), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (request.method === 'POST') {
+        const data = await request.json();
+
+        const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
+        const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
+
+        await db.prepare(
+          "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(
+          data.id,
+          encryptedEmail,
+          'MERGED_DATA',
+          encryptedTwoFactor,
+          data.cost || 0,
+          data.status,
+          data.date,
+          data.description || '',
+          data.region || ''
+        ).run();
+
+        return new Response(JSON.stringify({ success: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      return new Response(JSON.stringify({ error: `Method not allowed on root: ${request.method}` }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ==========================================
+    // ID 路径路由 (/api/accounts/:id)
+    // ==========================================
     if (request.method === 'DELETE') {
       await db.prepare("DELETE FROM accounts WHERE id = ?").bind(id).run();
       return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // PATCH: 更新账号状态 (存活/封禁)
     if (request.method === 'PATCH') {
       const data = await request.json();
       if (data.status) {
@@ -25,7 +81,6 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ error: "参数不完整" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // PUT: 更新完整账号记录 (全字段覆盖)
     if (request.method === 'PUT') {
       const data = await request.json();
       
@@ -49,7 +104,7 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
-    return new Response(JSON.stringify({ error: `Method not allowed in [id].js: ${request.method}, id: ${id}` }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: `Method not allowed on ID route: ${request.method}` }), { status: 405, headers: { 'Content-Type': 'application/json' } });
 
   } catch (e) {
     console.error('accounts/[[id]].js 顶层错误:', e.message, e.stack);
