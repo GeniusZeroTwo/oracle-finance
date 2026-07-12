@@ -5,11 +5,11 @@ export async function onRequest(context) {
 
   // 鉴权已由 /api/_middleware.js 统一处理
 
-  const db = env.DB;
+  try {
+    const db = env.DB;
 
-  // GET: 获取所有账号库存并解密返回明文
-  if (request.method === 'GET') {
-    try {
+    // GET: 获取所有账号库存并解密返回明文
+    if (request.method === 'GET') {
       const { results } = await db.prepare("SELECT * FROM accounts ORDER BY date DESC").all();
 
       const decryptedResults = await Promise.all(results.map(async (acc) => {
@@ -33,21 +33,17 @@ export async function onRequest(context) {
       return new Response(JSON.stringify(decryptedResults), {
         headers: { 'Content-Type': 'application/json' },
       });
-    } catch (e) {
-      return new Response(JSON.stringify({ error: "数据库读取失败: " + e.message }), { status: 500 });
     }
-  }
 
-  // POST: 录入新账号 (后端加密)
-  if (request.method === 'POST') {
-    try {
+    // POST: 录入新账号 (后端加密)
+    if (request.method === 'POST') {
       const data = await request.json();
 
       const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
       const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
 
       await db.prepare(
-        "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).bind(
         data.id,
         encryptedEmail,
@@ -56,14 +52,21 @@ export async function onRequest(context) {
         data.cost || 0,
         data.status,
         data.date,
-        data.description || ''
+        data.description || '',
+        data.region || ''
       ).run();
 
-      return new Response(JSON.stringify({ success: true }), { status: 201 });
-    } catch (e) {
-      return new Response(JSON.stringify({ error: "保存失败: " + e.message }), { status: 500 });
+      return new Response(JSON.stringify({ success: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
     }
-  }
 
-  return new Response("Method not allowed", { status: 405 });
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+
+  } catch (e) {
+    console.error('accounts.js 顶层错误:', e.message, e.stack);
+    return new Response(JSON.stringify({ error: "服务器内部错误: " + e.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 }
+
