@@ -61,15 +61,20 @@ CREATE TABLE IF NOT EXISTS transactions (
 * D1 数据库: 选择您在步骤1创建的 D1 数据库。
 
 **3. 配置环境变量 (Environment variables)**
-添加以下环境变量（建议将涉及到密钥的变量点击右侧的 **加密/Encrypt** 按钮进行加密隐藏）：
+添加以下环境变量（**建议将涉及到密钥的变量点击右侧的 加密/Encrypt 按钮进行加密隐藏**）：
 
 | 变量名称 (Variable name) | 说明 | 示例值 |
 | ---------------------- | ---- | ----- |
 | `TG_BOT_TOKEN` | 您的 Telegram Bot Token (用于发送验证码) | `123456789:ABCdefGhIJKlmNoPQRstuVWXyz` |
 | `ADMIN_CHAT_ID` | 接收验证码的 TG 数字ID | `12345678` |
-| `AES_SECRET_KEY` | 用于加密账号敏感信息的 32 位密钥 | `my_super_secret_key_2026_CHANGE_ME` |
+| `AES_SECRET_KEY` | ⚠️ **(必填)** 用于强加密账号数据的 32 位随机密钥 | `4b8c9d2f-1e7a-4a6b-9c3d-8f5e2a1b4c9d` |
 
-*(注：配置完成后，需要 **重新部署 (Retry Deployment)** 一次 Pages 项目，绑定才会生效。)*
+> [!CAUTION]
+> **关于 `AES_SECRET_KEY` 的特别警告**
+> 你**必须**自己生成一段约 32 位的随机高强度字符串填入 `AES_SECRET_KEY` 中，并在填入后点击右侧的 **加密 (Encrypt)** 按钮。
+> 如果你不配置此变量，系统将回退使用开源代码里的默认不安全密钥，导致任何拿到你数据库的人都能轻易解密你的库存资产！请务必将其保存在密码管理器中，一旦丢失将无法恢复库存数据。
+
+*(注：配置或修改环境变量后，当前运行的程序不会立刻生效。你需要前往 Deployments 选项卡，在最新的 Production 部署记录上点击右侧的 `...` -> **重新部署 (Retry Deployment)**，等待完成后绑定和新密钥才会生效。)*
 
 ---
 
