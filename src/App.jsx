@@ -353,6 +353,132 @@ const FinanceDashboard = () => {
 };
 
 // ==========================================
+// 独立组件 3.5：TOTP 验证码显示 (TotpDisplay)
+// ==========================================
+const TotpDisplay = ({ secret, copyToClipboard }) => {
+  const [code, setCode] = useState('------');
+  const [timeLeft, setTimeLeft] = useState(30);
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const updateCode = async () => {
+      if (!secret) return;
+      try {
+        const base32ToUint8Array = (base32) => {
+          const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+          let bits = 0, value = 0, index = 0;
+          const cleanBase32 = base32.replace(/=+$/, '').toUpperCase().replace(/\s+/g, '');
+          const output = new Uint8Array(Math.floor((cleanBase32.length * 5) / 8));
+          for (let i = 0; i < cleanBase32.length; i++) {
+            const val = alphabet.indexOf(cleanBase32[i]);
+            if (val === -1) continue;
+            value = (value << 5) | val;
+            bits += 5;
+            if (bits >= 8) {
+              output[index++] = (value >>> (bits - 8)) & 255;
+              bits -= 8;
+            }
+          }
+          return output;
+        };
+
+        const cleanSecret = secret.replace(/\s+/g, '');
+        if (!cleanSecret) return;
+        const keyBytes = base32ToUint8Array(cleanSecret);
+
+        let epoch = Math.floor(Date.now() / 1000);
+        let timeTemp = Math.floor(epoch / 30);
+        
+        const timeBytes = new Uint8Array(8);
+        for (let i = 7; i >= 0; i--) {
+          timeBytes[i] = timeTemp & 0xff;
+          timeTemp = Math.floor(timeTemp / 256);
+        }
+
+        const cryptoKey = await crypto.subtle.importKey(
+          'raw', keyBytes, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+        );
+        const signature = await crypto.subtle.sign('HMAC', cryptoKey, timeBytes);
+        const hmac = new Uint8Array(signature);
+
+        const offset = hmac[hmac.length - 1] & 0x0f;
+        const binary =
+          ((hmac[offset] & 0x7f) << 24) |
+          ((hmac[offset + 1] & 0xff) << 16) |
+          ((hmac[offset + 2] & 0xff) << 8) |
+          (hmac[offset + 3] & 0xff);
+
+        let totp = (binary % 1000000).toString();
+        while (totp.length < 6) totp = '0' + totp;
+
+        if (isMounted) setCode(totp);
+      } catch (err) {
+        console.error('TOTP Error:', err);
+        if (isMounted) setCode('Error');
+      }
+    };
+
+    updateCode();
+    
+    const interval = setInterval(() => {
+      const epoch = Math.floor(Date.now() / 1000);
+      const remain = 30 - (epoch % 30);
+      if (isMounted) setTimeLeft(remain);
+      
+      if (remain === 30) {
+        updateCode();
+      }
+    }, 1000);
+    
+    setTimeLeft(30 - (Math.floor(Date.now() / 1000) % 30));
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [secret]);
+
+  return (
+    <div className="flex justify-between items-center bg-indigo-50/50 border border-indigo-100 rounded-lg p-2 px-3 mt-2">
+      <div className="flex items-center gap-2">
+        <span className="text-indigo-500 text-xs font-medium flex items-center gap-1">
+          <ShieldCheck className="w-3.5 h-3.5" /> 验证码:
+        </span>
+        <span 
+          onClick={() => { if(code !== '------' && code !== 'Error') copyToClipboard(code, '验证码') }} 
+          className="text-indigo-700 font-mono font-bold text-lg tracking-wider cursor-pointer hover:text-indigo-900 transition-colors"
+          title="点击复制验证码"
+        >
+          {code}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="text-xs font-medium text-indigo-400 w-4 text-right">{timeLeft}</div>
+        <svg className="w-4 h-4 transform -rotate-90" viewBox="0 0 36 36">
+          <path
+            className="text-indigo-100"
+            strokeDasharray="100, 100"
+            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            stroke="currentColor"
+            strokeWidth="4"
+            fill="none"
+          />
+          <path
+            className={timeLeft > 5 ? "text-indigo-500 transition-all duration-1000 ease-linear" : "text-red-500 transition-all duration-1000 ease-linear"}
+            strokeDasharray={`${(timeLeft / 30) * 100}, 100`}
+            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            stroke="currentColor"
+            strokeWidth="4"
+            fill="none"
+          />
+        </svg>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
 // 独立组件 4：账号库存 (AccountInventory) - 升级版 (卡片式 & 批量粘贴)
 // ==========================================
 const AccountInventory = ({ setToastMessage }) => {
@@ -710,27 +836,30 @@ const AccountInventory = ({ setToastMessage }) => {
 
                     {/* 独立 2FA 显示框 */}
                     {acc.twoFactor && (
-                      <div className="relative mb-4 group/2fa">
-                        <div className="flex items-stretch h-[38px]">
-                          <span className="flex items-center justify-center bg-indigo-50 text-indigo-600 text-xs font-bold px-3 rounded-l-lg border border-indigo-100 border-r-0">
-                            2FA
-                          </span>
-                          <input
-                            type="text"
-                            readOnly
-                            value={decryptedTwoFactor}
-                            onClick={(e) => { e.target.select(); copyToClipboard(decryptedTwoFactor, '2FA 密钥'); }}
-                            className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
-                            title="点击复制 2FA"
-                          />
+                      <div className="mb-4">
+                        <div className="relative group/2fa">
+                          <div className="flex items-stretch h-[38px]">
+                            <span className="flex items-center justify-center bg-indigo-50 text-indigo-600 text-xs font-bold px-3 rounded-l-lg border border-indigo-100 border-r-0">
+                              2FA
+                            </span>
+                            <input
+                              type="text"
+                              readOnly
+                              value={decryptedTwoFactor}
+                              onClick={(e) => { e.target.select(); copyToClipboard(decryptedTwoFactor, '2FA 密钥'); }}
+                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
+                              title="点击复制 2FA"
+                            />
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(decryptedTwoFactor, '2FA 密钥')}
+                            className="absolute right-1.5 top-1.5 p-1 bg-white border border-indigo-100 rounded text-indigo-400 hover:text-indigo-600 shadow-sm opacity-0 group-hover/2fa:opacity-100 transition-opacity"
+                            title="复制 2FA 密钥"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => copyToClipboard(decryptedTwoFactor, '2FA 密钥')}
-                          className="absolute right-1.5 top-1.5 p-1 bg-white border border-indigo-100 rounded text-indigo-400 hover:text-indigo-600 shadow-sm opacity-0 group-hover/2fa:opacity-100 transition-opacity"
-                          title="复制 2FA 密钥"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
+                        <TotpDisplay secret={decryptedTwoFactor} copyToClipboard={copyToClipboard} />
                       </div>
                     )}
 
