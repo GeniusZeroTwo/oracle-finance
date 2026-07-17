@@ -355,6 +355,34 @@ const FinanceDashboard = () => {
 // ==========================================
 // 独立组件 3.5：TOTP 验证码显示 (TotpDisplay)
 // ==========================================
+// 全局单例时钟，解决海量验证码时的性能瓶颈
+const totpTimerManager = {
+  subscribers: new Set(),
+  intervalId: null,
+  start() {
+    if (!this.intervalId) {
+      this.intervalId = setInterval(() => {
+        const epoch = Math.floor(Date.now() / 1000);
+        const remain = 30 - (epoch % 30);
+        this.subscribers.forEach(cb => cb(remain));
+      }, 1000);
+    }
+  },
+  subscribe(callback) {
+    this.subscribers.add(callback);
+    this.start();
+    const epoch = Math.floor(Date.now() / 1000);
+    callback(30 - (epoch % 30));
+    return () => {
+      this.subscribers.delete(callback);
+      if (this.subscribers.size === 0 && this.intervalId) {
+        clearInterval(this.intervalId);
+        this.intervalId = null;
+      }
+    };
+  }
+};
+
 const TotpDisplay = ({ secret, copyToClipboard }) => {
   const [code, setCode] = useState('------');
   const [timeLeft, setTimeLeft] = useState(30);
@@ -421,21 +449,19 @@ const TotpDisplay = ({ secret, copyToClipboard }) => {
 
     updateCode();
     
-    const interval = setInterval(() => {
-      const epoch = Math.floor(Date.now() / 1000);
-      const remain = 30 - (epoch % 30);
-      if (isMounted) setTimeLeft(remain);
-      
-      if (remain === 30) {
-        updateCode();
+    // 订阅全局单例时钟
+    const unsubscribe = totpTimerManager.subscribe((remain) => {
+      if (isMounted) {
+        setTimeLeft(remain);
+        if (remain === 30) {
+          updateCode();
+        }
       }
-    }, 1000);
-    
-    setTimeLeft(30 - (Math.floor(Date.now() / 1000) % 30));
+    });
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      unsubscribe();
     };
   }, [secret]);
 
