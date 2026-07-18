@@ -32,11 +32,17 @@ CREATE TABLE IF NOT EXISTS accounts (
   status TEXT DEFAULT 'alive', 
   date TEXT NOT NULL, 
   description TEXT,
-  region TEXT DEFAULT ''
+  region TEXT DEFAULT '',
+  email2fa TEXT,
+  verificationCode TEXT
 );
 
--- 如果是从旧版本升级（没有 region 字段），请单独执行这句：
+-- 如果是从旧版本升级（没有 region 字段），请执行这句：
 -- ALTER TABLE accounts ADD COLUMN region TEXT DEFAULT '';
+
+-- 如果是为新增的邮箱 2FA 和验证码功能升级，请执行以下两句：
+-- ALTER TABLE accounts ADD COLUMN email2fa TEXT;
+-- ALTER TABLE accounts ADD COLUMN verificationCode TEXT;
 
 -- 2. 创建财务流水表
 CREATE TABLE IF NOT EXISTS transactions (
