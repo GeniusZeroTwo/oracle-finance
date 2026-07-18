@@ -520,6 +520,8 @@ const AccountInventory = ({ setToastMessage }) => {
   const [accountFormData, setAccountFormData] = useState({
     accountData: '',
     twoFactor: '',
+    email2fa: '',
+    verificationCode: '',
     cost: '',
     status: 'alive',
     date: new Date().toISOString().split('T')[0],
@@ -561,6 +563,8 @@ const AccountInventory = ({ setToastMessage }) => {
       email: accountFormData.accountData, // 后端会自动加密
       password: 'MERGED_DATA', // 标识符，表明该条数据使用的是不拆分的合并格式
       twoFactor: accountFormData.twoFactor || '',
+      email2fa: accountFormData.email2fa || '',
+      verificationCode: accountFormData.verificationCode || '',
       cost: parseFloat(accountFormData.cost) || 0,
       region: accountFormData.region || '',
     };
@@ -596,7 +600,7 @@ const AccountInventory = ({ setToastMessage }) => {
     }
 
     // 清空表单，保留日期等选项
-    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', cost: '', description: '', region: '' }));
+    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', verificationCode: '', cost: '', description: '', region: '' }));
   };
 
   const handleAccDelete = async (id) => {
@@ -696,7 +700,9 @@ const AccountInventory = ({ setToastMessage }) => {
       return {
         ...acc,
         decryptedAccountData: acc.email || '',
-        decryptedTwoFactor: acc.twoFactor || ''
+        decryptedTwoFactor: acc.twoFactor || '',
+        decryptedEmailTwoFactor: acc.email2fa || '',
+        decryptedVerificationCode: acc.verificationCode || ''
       };
     }).filter(acc => {
       if (!searchQuery) return true;
@@ -734,7 +740,11 @@ const AccountInventory = ({ setToastMessage }) => {
           </div>
           <div className="lg:col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">2FA 密钥 (独立填写，本地加密)</label>
-            <input type="text" value={accountFormData.twoFactor} onChange={e => setAccountFormData(p => ({ ...p, twoFactor: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono" placeholder="单独粘贴 2FA" />
+            <input type="text" value={accountFormData.twoFactor} onChange={e => setAccountFormData(p => ({ ...p, twoFactor: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono mb-3" placeholder="单独粘贴 2FA" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">邮箱 2FA 密钥</label>
+            <input type="text" value={accountFormData.email2fa} onChange={e => setAccountFormData(p => ({ ...p, email2fa: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono mb-3" placeholder="邮箱 2FA 密钥" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">验证码</label>
+            <input type="text" value={accountFormData.verificationCode} onChange={e => setAccountFormData(p => ({ ...p, verificationCode: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono" placeholder="验证码" />
           </div>
           <div className="grid grid-cols-2 gap-2 lg:col-span-1">
             <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
@@ -767,7 +777,7 @@ const AccountInventory = ({ setToastMessage }) => {
           {displayAccounts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {displayAccounts.map((acc) => {
-                const { decryptedAccountData, decryptedTwoFactor } = acc;
+                const { decryptedAccountData, decryptedTwoFactor, decryptedEmailTwoFactor, decryptedVerificationCode } = acc;
 
                 // ==========================================
                 // 渲染状态 1：编辑模式卡片
@@ -886,6 +896,60 @@ const AccountInventory = ({ setToastMessage }) => {
                           </button>
                         </div>
                         <TotpDisplay secret={decryptedTwoFactor} copyToClipboard={copyToClipboard} />
+                      </div>
+                    )}
+
+                    {/* 邮箱 2FA 和 验证码 */}
+                    {acc.email2fa && (
+                      <div className="mb-4">
+                        <div className="relative group/email2fa">
+                          <div className="flex items-stretch h-[38px]">
+                            <span className="flex items-center justify-center bg-indigo-50 text-indigo-600 text-xs font-bold px-3 rounded-l-lg border border-indigo-100 border-r-0">
+                              邮箱2FA
+                            </span>
+                            <input
+                              type="text"
+                              readOnly
+                              value={decryptedEmailTwoFactor}
+                              onClick={(e) => { e.target.select(); copyToClipboard(decryptedEmailTwoFactor, '邮箱 2FA'); }}
+                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
+                              title="点击复制邮箱 2FA"
+                            />
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(decryptedEmailTwoFactor, '邮箱 2FA')}
+                            className="absolute right-1.5 top-1.5 p-1 bg-white border border-indigo-100 rounded text-indigo-400 hover:text-indigo-600 shadow-sm opacity-0 group-hover/email2fa:opacity-100 transition-opacity"
+                            title="复制邮箱 2FA"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {acc.verificationCode && (
+                      <div className="mb-4">
+                        <div className="relative group/verification">
+                          <div className="flex items-stretch h-[38px]">
+                            <span className="flex items-center justify-center bg-indigo-50 text-indigo-600 text-xs font-bold px-3 rounded-l-lg border border-indigo-100 border-r-0">
+                              验证码
+                            </span>
+                            <input
+                              type="text"
+                              readOnly
+                              value={decryptedVerificationCode}
+                              onClick={(e) => { e.target.select(); copyToClipboard(decryptedVerificationCode, '验证码'); }}
+                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
+                              title="点击复制验证码"
+                            />
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(decryptedVerificationCode, '验证码')}
+                            className="absolute right-1.5 top-1.5 p-1 bg-white border border-indigo-100 rounded text-indigo-400 hover:text-indigo-600 shadow-sm opacity-0 group-hover/verification:opacity-100 transition-opacity"
+                            title="复制验证码"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     )}
 
