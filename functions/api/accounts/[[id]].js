@@ -24,12 +24,16 @@ export async function onRequest(context) {
             decryptedAccountData = acc.email + '----' + decryptedOldPassword;
           }
           const decryptedTwoFactor = await decryptData(acc.twoFactor, env.AES_SECRET_KEY);
+          const decryptedEmailTwoFactor = await decryptData(acc.email2fa, env.AES_SECRET_KEY);
+          const decryptedVerificationCode = await decryptData(acc.verificationCode, env.AES_SECRET_KEY);
 
           return {
             ...acc,
             email: decryptedAccountData,
             password: 'MERGED_DATA',
-            twoFactor: decryptedTwoFactor
+            twoFactor: decryptedTwoFactor,
+            email2fa: decryptedEmailTwoFactor,
+            verificationCode: decryptedVerificationCode
           };
         }));
 
@@ -43,9 +47,11 @@ export async function onRequest(context) {
 
         const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
         const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
+        const encryptedEmailTwoFactor = await encryptData(data.email2fa, env.AES_SECRET_KEY);
+        const encryptedVerificationCode = await encryptData(data.verificationCode, env.AES_SECRET_KEY);
 
         await db.prepare(
-          "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region, email2fa, verificationCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).bind(
           data.id,
           encryptedEmail,
@@ -55,7 +61,9 @@ export async function onRequest(context) {
           data.status,
           data.date,
           data.description || '',
-          data.region || ''
+          data.region || '',
+          encryptedEmailTwoFactor,
+          encryptedVerificationCode
         ).run();
 
         return new Response(JSON.stringify({ success: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
@@ -86,9 +94,11 @@ export async function onRequest(context) {
       
       const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
       const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
+      const encryptedEmailTwoFactor = await encryptData(data.email2fa, env.AES_SECRET_KEY);
+      const encryptedVerificationCode = await encryptData(data.verificationCode, env.AES_SECRET_KEY);
 
       await db.prepare(
-        "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ?, region = ? WHERE id = ?"
+        "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ?, region = ?, email2fa = ?, verificationCode = ? WHERE id = ?"
       ).bind(
         encryptedEmail,
         'MERGED_DATA',
@@ -98,6 +108,8 @@ export async function onRequest(context) {
         data.date,
         data.description || '',
         data.region || '',
+        encryptedEmailTwoFactor,
+        encryptedVerificationCode,
         id
       ).run();
       
