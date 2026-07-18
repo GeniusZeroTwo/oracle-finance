@@ -383,7 +383,7 @@ const totpTimerManager = {
   }
 };
 
-const TotpDisplay = ({ secret, copyToClipboard }) => {
+const TotpDisplay = ({ secret, copyToClipboard, label = "验证码" }) => {
   const [code, setCode] = useState('------');
   const [timeLeft, setTimeLeft] = useState(30);
 
@@ -469,10 +469,10 @@ const TotpDisplay = ({ secret, copyToClipboard }) => {
     <div className="flex justify-between items-center bg-indigo-50/50 border border-indigo-100 rounded-lg p-2 px-3 mt-2">
       <div className="flex items-center gap-2">
         <span className="text-indigo-500 text-xs font-medium flex items-center gap-1">
-          <ShieldCheck className="w-3.5 h-3.5" /> 验证码:
+          <ShieldCheck className="w-3.5 h-3.5" /> {label}:
         </span>
         <span 
-          onClick={() => { if(code !== '------' && code !== 'Error') copyToClipboard(code, '验证码') }} 
+          onClick={() => { if(code !== '------' && code !== 'Error') copyToClipboard(code, label) }} 
           className="text-indigo-700 font-mono font-bold text-lg tracking-wider cursor-pointer hover:text-indigo-900 transition-colors"
           title="点击复制验证码"
         >
@@ -739,7 +739,7 @@ const AccountInventory = ({ setToastMessage }) => {
             <textarea value={accountFormData.accountData} onChange={e => setAccountFormData(p => ({ ...p, accountData: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none resize-none h-[42px] font-mono" placeholder="在此粘贴完整账号信息..." required />
           </div>
           <div className="lg:col-span-1">
-            <label className="block text-xs font-medium text-gray-500 mb-1">2FA 密钥 (独立填写，本地加密)</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">账户 2FA 密钥 (独立填写，本地加密)</label>
             <input type="text" value={accountFormData.twoFactor} onChange={e => setAccountFormData(p => ({ ...p, twoFactor: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono mb-3" placeholder="单独粘贴 2FA" />
             <label className="block text-xs font-medium text-gray-500 mb-1">邮箱 2FA 密钥</label>
             <input type="text" value={accountFormData.email2fa} onChange={e => setAccountFormData(p => ({ ...p, email2fa: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono mb-3" placeholder="邮箱 2FA 密钥" />
@@ -875,7 +875,7 @@ const AccountInventory = ({ setToastMessage }) => {
                         <div className="relative group/2fa">
                           <div className="flex items-stretch h-[38px]">
                             <span className="flex items-center justify-center bg-indigo-50 text-indigo-600 text-xs font-bold px-3 rounded-l-lg border border-indigo-100 border-r-0">
-                              2FA
+                              账户2FA
                             </span>
                             <input
                               type="text"
@@ -893,7 +893,7 @@ const AccountInventory = ({ setToastMessage }) => {
                             <Copy className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                        <TotpDisplay secret={decryptedTwoFactor} copyToClipboard={copyToClipboard} />
+                        <TotpDisplay secret={decryptedTwoFactor} copyToClipboard={copyToClipboard} label="账户 2FA 验证码" />
                       </div>
                     )}
 
@@ -921,7 +921,7 @@ const AccountInventory = ({ setToastMessage }) => {
                             <Copy className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                        <TotpDisplay secret={decryptedEmailTwoFactor} copyToClipboard={copyToClipboard} />
+                        <TotpDisplay secret={decryptedEmailTwoFactor} copyToClipboard={copyToClipboard} label="邮箱 2FA 验证码" />
                       </div>
                     )}
                     {acc.verificationCode && (
