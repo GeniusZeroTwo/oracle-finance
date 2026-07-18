@@ -857,9 +857,8 @@ const AccountInventory = ({ setToastMessage }) => {
                       <textarea
                         readOnly
                         value={decryptedAccountData}
-                        onClick={(e) => { e.target.select(); copyToClipboard(decryptedAccountData, '账号凭证'); }}
-                        className="w-full text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-3 text-gray-700 outline-none resize-none h-[110px] font-mono transition-colors cursor-pointer"
-                        title="点击全选并复制主账号"
+                        className="w-full text-sm bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-3 text-gray-700 outline-none resize-none h-[110px] font-mono transition-colors"
+                        title="主账号数据"
                       />
                       <button
                         onClick={() => copyToClipboard(decryptedAccountData, '账号凭证')}
@@ -882,9 +881,8 @@ const AccountInventory = ({ setToastMessage }) => {
                               type="text"
                               readOnly
                               value={decryptedTwoFactor}
-                              onClick={(e) => { e.target.select(); copyToClipboard(decryptedTwoFactor, '2FA 密钥'); }}
-                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
-                              title="点击复制 2FA"
+                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors"
+                              title="2FA 密钥"
                             />
                           </div>
                           <button
@@ -911,9 +909,8 @@ const AccountInventory = ({ setToastMessage }) => {
                               type="text"
                               readOnly
                               value={decryptedEmailTwoFactor}
-                              onClick={(e) => { e.target.select(); copyToClipboard(decryptedEmailTwoFactor, '邮箱 2FA'); }}
-                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
-                              title="点击复制邮箱 2FA"
+                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors"
+                              title="邮箱 2FA"
                             />
                           </div>
                           <button
@@ -937,9 +934,8 @@ const AccountInventory = ({ setToastMessage }) => {
                               type="text"
                               readOnly
                               value={decryptedVerificationCode}
-                              onClick={(e) => { e.target.select(); copyToClipboard(decryptedVerificationCode, '验证码'); }}
-                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors cursor-pointer"
-                              title="点击复制验证码"
+                              className="w-full text-sm bg-indigo-50/30 hover:bg-indigo-50 border border-indigo-100 rounded-r-lg px-3 text-indigo-700 outline-none font-mono transition-colors"
+                              title="验证码"
                             />
                           </div>
                           <button
