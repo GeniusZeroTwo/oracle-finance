@@ -734,10 +734,10 @@ const AccountInventory = ({ setToastMessage }) => {
           <Plus className="w-5 h-5 text-indigo-500" /> 录入新账号 (安全加密)
         </h2>
         <form onSubmit={handleAccSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="lg:col-span-2">
-            <label className="block text-xs font-medium text-gray-500 mb-1">账号数据 (邮箱、密码等直接粘贴，不再拆分) *</label>
-            <textarea value={accountFormData.accountData} onChange={e => setAccountFormData(p => ({ ...p, accountData: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none resize-none h-[42px] font-mono" placeholder="在此粘贴完整账号信息..." required />
-          </div>
+            <div className="lg:col-span-2 lg:row-span-2 flex flex-col h-full">
+              <label className="block text-xs font-medium text-gray-500 mb-1">账号数据 (邮箱、密码等直接粘贴，不再拆分) *</label>
+              <textarea value={accountFormData.accountData} onChange={e => setAccountFormData(p => ({ ...p, accountData: e.target.value }))} className="block w-full h-full min-h-[180px] rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none resize-y flex-1 font-mono" placeholder="在此粘贴完整账号信息..." required />
+            </div>
           <div className="lg:col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">账户 2FA 密钥 (独立填写，本地加密)</label>
             <input type="text" value={accountFormData.twoFactor} onChange={e => setAccountFormData(p => ({ ...p, twoFactor: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono mb-3" placeholder="单独粘贴 2FA" />
