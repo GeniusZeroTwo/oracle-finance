@@ -514,14 +514,13 @@ const AccountInventory = ({ setToastMessage }) => {
 
   // 用于控制卡片编辑状态的 State
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', cost: '', status: 'alive', description: '', region: '' });
+  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', email2fa: '', cost: '', status: 'alive', description: '', region: '' });
 
   // 独立的账号粘贴框 与 2FA单独字段
   const [accountFormData, setAccountFormData] = useState({
     accountData: '',
     twoFactor: '',
     email2fa: '',
-    verificationCode: '',
     cost: '',
     status: 'alive',
     date: new Date().toISOString().split('T')[0],
@@ -564,7 +563,6 @@ const AccountInventory = ({ setToastMessage }) => {
       password: 'MERGED_DATA', // 标识符，表明该条数据使用的是不拆分的合并格式
       twoFactor: accountFormData.twoFactor || '',
       email2fa: accountFormData.email2fa || '',
-      verificationCode: accountFormData.verificationCode || '',
       cost: parseFloat(accountFormData.cost) || 0,
       region: accountFormData.region || '',
     };
@@ -600,7 +598,7 @@ const AccountInventory = ({ setToastMessage }) => {
     }
 
     // 清空表单，保留日期等选项
-    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', verificationCode: '', cost: '', description: '', region: '' }));
+    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', cost: '', description: '', region: '' }));
   };
 
   const handleAccDelete = async (id) => {
@@ -622,7 +620,8 @@ const AccountInventory = ({ setToastMessage }) => {
     setEditingId(acc.id);
     setEditForm({
       accountData: acc.email, // 后端已解密为明文
-      twoFactor: acc.twoFactor,
+      twoFactor: acc.twoFactor || '',
+      email2fa: acc.email2fa || '',
       cost: acc.cost,
       status: acc.status,
       description: acc.description || '',
@@ -642,6 +641,7 @@ const AccountInventory = ({ setToastMessage }) => {
       email: editForm.accountData, // 后端会自动加密
       password: 'MERGED_DATA',
       twoFactor: editForm.twoFactor || '',
+      email2fa: editForm.email2fa || '',
       cost: parseFloat(editForm.cost) || 0,
       status: editForm.status,
       description: editForm.description,
@@ -734,7 +734,7 @@ const AccountInventory = ({ setToastMessage }) => {
           <Plus className="w-5 h-5 text-indigo-500" /> 录入新账号 (安全加密)
         </h2>
         <form onSubmit={handleAccSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="lg:col-span-2 lg:row-span-2 flex flex-col h-full">
+            <div className="lg:col-span-2 lg:row-span-3 flex flex-col h-full">
               <label className="block text-xs font-medium text-gray-500 mb-1">账号数据 (邮箱、密码等直接粘贴，不再拆分) *</label>
               <textarea value={accountFormData.accountData} onChange={e => setAccountFormData(p => ({ ...p, accountData: e.target.value }))} className="block w-full h-full min-h-[180px] rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm focus:ring-indigo-500 outline-none resize-y flex-1 font-mono" placeholder="在此粘贴完整账号信息..." required />
             </div>
@@ -742,9 +742,7 @@ const AccountInventory = ({ setToastMessage }) => {
             <label className="block text-xs font-medium text-gray-500 mb-1">账户 2FA 密钥 (独立填写，本地加密)</label>
             <input type="text" value={accountFormData.twoFactor} onChange={e => setAccountFormData(p => ({ ...p, twoFactor: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono mb-3" placeholder="单独粘贴 2FA" />
             <label className="block text-xs font-medium text-gray-500 mb-1">邮箱 2FA 密钥</label>
-            <input type="text" value={accountFormData.email2fa} onChange={e => setAccountFormData(p => ({ ...p, email2fa: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono mb-3" placeholder="邮箱 2FA 密钥" />
-            <label className="block text-xs font-medium text-gray-500 mb-1">验证码</label>
-            <input type="text" value={accountFormData.verificationCode} onChange={e => setAccountFormData(p => ({ ...p, verificationCode: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono" placeholder="验证码" />
+            <input type="text" value={accountFormData.email2fa} onChange={e => setAccountFormData(p => ({ ...p, email2fa: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono" placeholder="邮箱 2FA 密钥" />
           </div>
           <div className="grid grid-cols-2 gap-2 lg:col-span-1">
             <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
@@ -792,9 +790,15 @@ const AccountInventory = ({ setToastMessage }) => {
                         <textarea value={editForm.accountData} onChange={e => setEditForm({ ...editForm, accountData: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2.5 outline-none h-[110px] font-mono focus:ring-1 focus:ring-indigo-400" />
                       </div>
 
-                      <div>
-                        <label className="block text-xs font-medium text-indigo-500 mb-1">2FA 密钥</label>
-                        <input value={editForm.twoFactor} onChange={e => setEditForm({ ...editForm, twoFactor: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2.5 outline-none font-mono focus:ring-1 focus:ring-indigo-400" />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-indigo-500 mb-1">2FA 密钥</label>
+                          <input value={editForm.twoFactor} onChange={e => setEditForm({ ...editForm, twoFactor: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2.5 outline-none font-mono focus:ring-1 focus:ring-indigo-400" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-indigo-500 mb-1">邮箱 2FA</label>
+                          <input value={editForm.email2fa} onChange={e => setEditForm({ ...editForm, email2fa: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2.5 outline-none font-mono focus:ring-1 focus:ring-indigo-400" />
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-3 gap-3">
