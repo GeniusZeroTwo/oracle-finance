@@ -542,6 +542,16 @@ const AccountInventory = ({ setToastMessage }) => {
   const [accounts, setAccounts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [exchangeRate, setExchangeRate] = useState(7.2);
+
+  useEffect(() => {
+    fetch('https://open.er-api.com/v6/latest/USD')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.rates?.CNY) setExchangeRate(data.rates.CNY);
+      })
+      .catch(e => console.error('获取汇率失败', e));
+  }, []);
 
   // 用于控制卡片编辑状态的 State
   const [editingId, setEditingId] = useState(null);
@@ -620,7 +630,7 @@ const AccountInventory = ({ setToastMessage }) => {
 
     let finalCost = parseFloat(accountFormData.cost) || 0;
     if (accountFormData.costCurrency === 'USD') {
-      finalCost = parseFloat((finalCost * 7.2).toFixed(2));
+      finalCost = parseFloat((finalCost * exchangeRate).toFixed(2));
     }
 
     const newAccount = {
@@ -713,7 +723,7 @@ const AccountInventory = ({ setToastMessage }) => {
   const saveEdit = async (id) => {
     let finalCost = parseFloat(editForm.cost) || 0;
     if (editForm.costCurrency === 'USD') {
-      finalCost = parseFloat((finalCost * 7.2).toFixed(2));
+      finalCost = parseFloat((finalCost * exchangeRate).toFixed(2));
     }
 
     const updatedAcc = {
@@ -841,7 +851,7 @@ const AccountInventory = ({ setToastMessage }) => {
                 >
                   {accountFormData.costCurrency === 'CNY' ? '¥' : '$'}
                 </button>
-                <input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full bg-transparent p-2 text-sm outline-none" placeholder={accountFormData.costCurrency === 'USD' ? '按7.2转人民币' : ''} />
+                <input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full bg-transparent p-2 text-sm outline-none" placeholder={accountFormData.costCurrency === 'USD' ? `按汇率 ${exchangeRate} 换算` : ''} />
               </div>
             </div>
             <div><label className="block text-xs font-medium text-gray-500 mb-1">单号收入</label><input type="number" value={accountFormData.income} onChange={e => setAccountFormData(p => ({ ...p, income: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
@@ -915,7 +925,7 @@ const AccountInventory = ({ setToastMessage }) => {
                             >
                               {editForm.costCurrency === 'CNY' ? '¥' : '$'}
                             </button>
-                            <input type="number" step="0.01" value={editForm.cost} onChange={e => setEditForm({ ...editForm, cost: e.target.value })} className="w-full text-sm bg-transparent p-2 outline-none" placeholder={editForm.costCurrency === 'USD' ? '按7.2转人民币' : ''} />
+                            <input type="number" step="0.01" value={editForm.cost} onChange={e => setEditForm({ ...editForm, cost: e.target.value })} className="w-full text-sm bg-transparent p-2 outline-none" placeholder={editForm.costCurrency === 'USD' ? `按汇率 ${exchangeRate} 换算` : ''} />
                           </div>
                         </div>
                         <div>
