@@ -49,6 +49,26 @@ export async function onRequest(context) {
       });
     }
 
+    if (request.method === 'PUT') {
+      const data = await request.json();
+      
+      const existing = await db.prepare("SELECT id FROM transactions WHERE id = ?").bind(id).first();
+      if (existing) {
+        await db.prepare(
+          "UPDATE transactions SET type=?, amount=?, category=?, date=?, description=? WHERE id=?"
+        ).bind(data.type, data.amount, data.category, data.date, data.description || '', id).run();
+      } else {
+        await db.prepare(
+          "INSERT INTO transactions (id, type, amount, category, date, description) VALUES (?, ?, ?, ?, ?, ?)"
+        ).bind(id, data.type, data.amount, data.category, data.date, data.description || '').run();
+      }
+      
+      return new Response(JSON.stringify({ success: true }), { 
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     return new Response(JSON.stringify({ error: `Method not allowed on ID route: ${request.method}` }), { 
       status: 405, 
       headers: { 'Content-Type': 'application/json' } 
