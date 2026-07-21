@@ -12,7 +12,7 @@ export async function onRequest(context) {
     // ==========================================
     if (!id) {
       if (request.method === 'GET') {
-        const { results } = await db.prepare("SELECT * FROM transactions ORDER BY date DESC").all();
+        const { results } = await db.prepare("SELECT * FROM transactions ORDER BY rowid DESC").all();
         return new Response(JSON.stringify(results), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
