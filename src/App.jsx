@@ -545,7 +545,7 @@ const AccountInventory = ({ setToastMessage }) => {
 
   // 用于控制卡片编辑状态的 State
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', email2fa: '', cost: '', income: '', accountName: '', status: 'alive', description: '', region: '' });
+  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', email2fa: '', cost: '', costCurrency: 'CNY', income: '', accountName: '', status: 'alive', description: '', region: '' });
 
   // 独立的账号粘贴框 与 2FA单独字段
   const [accountFormData, setAccountFormData] = useState({
@@ -553,6 +553,7 @@ const AccountInventory = ({ setToastMessage }) => {
     twoFactor: '',
     email2fa: '',
     cost: '',
+    costCurrency: 'CNY',
     income: '',
     accountName: '',
     status: 'alive',
@@ -617,6 +618,11 @@ const AccountInventory = ({ setToastMessage }) => {
       return alert('请粘贴或填写账号数据！');
     }
 
+    let finalCost = parseFloat(accountFormData.cost) || 0;
+    if (accountFormData.costCurrency === 'USD') {
+      finalCost = parseFloat((finalCost * 7.2).toFixed(2));
+    }
+
     const newAccount = {
       ...accountFormData,
       id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
@@ -624,7 +630,7 @@ const AccountInventory = ({ setToastMessage }) => {
       password: 'MERGED_DATA', // 标识符，表明该条数据使用的是不拆分的合并格式
       twoFactor: accountFormData.twoFactor || '',
       email2fa: accountFormData.email2fa || '',
-      cost: parseFloat(accountFormData.cost) || 0,
+      cost: finalCost,
       income: parseFloat(accountFormData.income) || 0,
       accountName: accountFormData.accountName || '',
       region: accountFormData.region || '',
@@ -656,7 +662,7 @@ const AccountInventory = ({ setToastMessage }) => {
         setToastMessage('账号已安全加密并录入');
       }
 
-      await syncTransaction(newAccount.id, 'cost', accountFormData.cost, accountFormData.date, accountFormData.accountName);
+      await syncTransaction(newAccount.id, 'cost', finalCost, accountFormData.date, accountFormData.accountName);
       await syncTransaction(newAccount.id, 'income', accountFormData.income, accountFormData.date, accountFormData.accountName);
     } catch (e) {
       console.log('保存失败', e);
@@ -664,7 +670,7 @@ const AccountInventory = ({ setToastMessage }) => {
     }
 
     // 清空表单，保留日期等选项
-    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', cost: '', income: '', accountName: '', description: '', region: '' }));
+    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', cost: '', costCurrency: 'CNY', income: '', accountName: '', description: '', region: '' }));
   };
 
   const handleAccDelete = async (id) => {
@@ -689,6 +695,7 @@ const AccountInventory = ({ setToastMessage }) => {
       twoFactor: acc.twoFactor || '',
       email2fa: acc.email2fa || '',
       cost: acc.cost,
+      costCurrency: 'CNY',
       income: acc.income || '',
       accountName: acc.accountName || '',
       status: acc.status,
@@ -704,13 +711,18 @@ const AccountInventory = ({ setToastMessage }) => {
 
   // 保存修改记录
   const saveEdit = async (id) => {
+    let finalCost = parseFloat(editForm.cost) || 0;
+    if (editForm.costCurrency === 'USD') {
+      finalCost = parseFloat((finalCost * 7.2).toFixed(2));
+    }
+
     const updatedAcc = {
       id, // 保持原始ID不变
       email: editForm.accountData, // 后端会自动加密
       password: 'MERGED_DATA',
       twoFactor: editForm.twoFactor || '',
       email2fa: editForm.email2fa || '',
-      cost: parseFloat(editForm.cost) || 0,
+      cost: finalCost,
       income: parseFloat(editForm.income) || 0,
       accountName: editForm.accountName || '',
       status: editForm.status,
@@ -737,7 +749,7 @@ const AccountInventory = ({ setToastMessage }) => {
         setToastMessage('修改已重新加密保存');
       }
 
-      await syncTransaction(id, 'cost', editForm.cost, updatedAcc.date, editForm.accountName);
+      await syncTransaction(id, 'cost', finalCost, updatedAcc.date, editForm.accountName);
       await syncTransaction(id, 'income', editForm.income, updatedAcc.date, editForm.accountName);
     } catch (e) {
       console.error('Update failed', e);
@@ -818,7 +830,20 @@ const AccountInventory = ({ setToastMessage }) => {
             <input type="text" value={accountFormData.email2fa} onChange={e => setAccountFormData(p => ({ ...p, email2fa: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-indigo-50/50 p-2 text-sm focus:ring-indigo-500 outline-none font-mono" placeholder="邮箱 2FA 密钥" />
           </div>
           <div className="grid grid-cols-2 gap-2 lg:col-span-1">
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label>
+              <div className="flex bg-gray-50 border border-gray-300 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-indigo-500">
+                <button
+                  type="button"
+                  onClick={() => setAccountFormData(p => ({ ...p, costCurrency: p.costCurrency === 'CNY' ? 'USD' : 'CNY' }))}
+                  className="bg-gray-200 hover:bg-gray-300 border-r border-gray-300 text-gray-700 text-xs font-bold px-3 outline-none transition-colors"
+                  title="点击切换货币"
+                >
+                  {accountFormData.costCurrency === 'CNY' ? '¥' : '$'}
+                </button>
+                <input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full bg-transparent p-2 text-sm outline-none" placeholder={accountFormData.costCurrency === 'USD' ? '按7.2转人民币' : ''} />
+              </div>
+            </div>
             <div><label className="block text-xs font-medium text-gray-500 mb-1">单号收入</label><input type="number" value={accountFormData.income} onChange={e => setAccountFormData(p => ({ ...p, income: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
           </div>
           <div className="grid grid-cols-2 gap-2 lg:col-span-1">
@@ -881,7 +906,17 @@ const AccountInventory = ({ setToastMessage }) => {
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">成本 (¥)</label>
-                          <input type="number" step="0.01" value={editForm.cost} onChange={e => setEditForm({ ...editForm, cost: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" />
+                          <div className="flex bg-white border border-indigo-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-indigo-400">
+                            <button
+                              type="button"
+                              onClick={() => setEditForm(p => ({ ...p, costCurrency: p.costCurrency === 'CNY' ? 'USD' : 'CNY' }))}
+                              className="bg-indigo-100 hover:bg-indigo-200 border-r border-indigo-200 text-indigo-700 text-xs font-bold px-3 outline-none transition-colors"
+                              title="点击切换货币"
+                            >
+                              {editForm.costCurrency === 'CNY' ? '¥' : '$'}
+                            </button>
+                            <input type="number" step="0.01" value={editForm.cost} onChange={e => setEditForm({ ...editForm, cost: e.target.value })} className="w-full text-sm bg-transparent p-2 outline-none" placeholder={editForm.costCurrency === 'USD' ? '按7.2转人民币' : ''} />
+                          </div>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">收入 (¥)</label>
