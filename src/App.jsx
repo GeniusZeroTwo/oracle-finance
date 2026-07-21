@@ -4,7 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import {
   Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock,
   KeyRound, ShieldCheck, RefreshCw, Box, LayoutDashboard, Copy,
-  CheckCircle2, Ban, AlertCircle, LogOut, Edit, MapPin, Search
+  CheckCircle2, Ban, AlertCircle, LogOut, Edit, MapPin, Search,
+  ChevronDown, ChevronRight
 } from 'lucide-react';
 
 // ==========================================
@@ -169,6 +170,26 @@ const FinanceDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [formData, setFormData] = useState({ type: 'income', amount: '', category: '', date: new Date().toISOString().split('T')[0], description: '' });
 
+  const currentMonthStr = new Date().toISOString().slice(0, 7);
+  const [expandedMonths, setExpandedMonths] = useState({ [currentMonthStr]: true });
+
+  const toggleMonth = (month) => {
+    setExpandedMonths(prev => ({ ...prev, [month]: !prev[month] }));
+  };
+
+  const groupedTransactions = useMemo(() => {
+    const groups = {};
+    transactions.forEach(t => {
+      const month = (t.date || '').slice(0, 7);
+      if (!groups[month]) groups[month] = [];
+      groups[month].push(t);
+    });
+    return Object.keys(groups).sort((a, b) => b.localeCompare(a)).map(month => ({
+      month,
+      txs: groups[month].sort((a, b) => new Date(b.date) - new Date(a.date))
+    }));
+  }, [transactions]);
+
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
@@ -318,7 +339,7 @@ const FinanceDashboard = () => {
               <div><label className="block text-xs font-medium text-gray-500 mb-1">日期</label><input type="date" name="date" value={formData.date} onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} className="block w-full rounded-lg border-gray-300 bg-gray-50 border p-2.5 text-sm text-gray-900" required /></div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">分类</label><input type="text" name="category" value={formData.category} onChange={(e) => setFormData(p => ({ ...p, category: e.target.value }))} className="block w-full rounded-lg border-gray-300 bg-gray-50 border p-2.5 text-sm text-gray-900" required /></div>
             </div>
-            <div><label className="block text-xs font-medium text-gray-500 mb-1">备注(可选)</label><input type="text" name="description" value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} className="block w-full rounded-lg border-gray-300 bg-gray-50 border p-2.5 text-sm text-gray-900" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">账户名(可选)</label><input type="text" name="description" value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} className="block w-full rounded-lg border-gray-300 bg-gray-50 border p-2.5 text-sm text-gray-900" placeholder="如果有关联的账户名可填入" /></div>
             <button type="submit" className={`w-full text-white font-medium rounded-lg text-sm px-5 py-3 transition-colors ${formData.type === 'income' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-500 hover:bg-red-600'}`}>保存</button>
           </form>
         </div>
@@ -326,22 +347,32 @@ const FinanceDashboard = () => {
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50"><h2 className="text-lg font-semibold text-gray-800">业务流水明细</h2></div>
-        {transactions.length > 0 ? (
+        {groupedTransactions.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left text-gray-500">
               <thead className="text-xs text-gray-400 uppercase bg-gray-50">
-                <tr><th className="px-6 py-3 font-medium">日期</th><th className="px-6 py-3 font-medium">类型</th><th className="px-6 py-3 font-medium">分类</th><th className="px-6 py-3 font-medium">备注</th><th className="px-6 py-3 font-medium text-right">金额</th><th className="px-6 py-3 font-medium text-center">操作</th></tr>
+                <tr><th className="px-6 py-3 font-medium">日期</th><th className="px-6 py-3 font-medium">类型</th><th className="px-6 py-3 font-medium">分类</th><th className="px-6 py-3 font-medium">账户名</th><th className="px-6 py-3 font-medium text-right">金额</th><th className="px-6 py-3 font-medium text-center">操作</th></tr>
               </thead>
               <tbody>
-                {transactions.map((t) => (
-                  <tr key={t.id} className="bg-white border-b hover:bg-gray-50">
-                    <td className="px-6 py-4">{t.date}</td>
-                    <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium ${t.type === 'income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{t.type === 'income' ? '进账' : '成本'}</span></td>
-                    <td className="px-6 py-4 font-medium text-gray-900">{t.category}</td>
-                    <td className="px-6 py-4">{t.description || '-'}</td>
-                    <td className={`px-6 py-4 text-right font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>{t.type === 'income' ? '+' : '-'}¥{t.amount.toLocaleString()}</td>
-                    <td className="px-6 py-4 text-center"><button onClick={() => handleTxDelete(t.id)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
-                  </tr>
+                {groupedTransactions.map(({ month, txs }) => (
+                  <React.Fragment key={month}>
+                    <tr onClick={() => toggleMonth(month)} className="bg-gray-100/50 cursor-pointer hover:bg-gray-100 transition-colors">
+                      <td colSpan="6" className="px-6 py-3 font-medium text-gray-700 flex items-center gap-2">
+                        {expandedMonths[month] ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
+                        {month} ({txs.length} 笔)
+                      </td>
+                    </tr>
+                    {expandedMonths[month] && txs.map((t) => (
+                      <tr key={t.id} className="bg-white border-b hover:bg-gray-50">
+                        <td className="px-6 py-4">{t.date}</td>
+                        <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium ${t.type === 'income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{t.type === 'income' ? '进账' : '成本'}</span></td>
+                        <td className="px-6 py-4 font-medium text-gray-900">{t.category}</td>
+                        <td className="px-6 py-4">{t.description || '-'}</td>
+                        <td className={`px-6 py-4 text-right font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>{t.type === 'income' ? '+' : '-'}¥{t.amount.toLocaleString()}</td>
+                        <td className="px-6 py-4 text-center"><button onClick={() => handleTxDelete(t.id)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -514,7 +545,7 @@ const AccountInventory = ({ setToastMessage }) => {
 
   // 用于控制卡片编辑状态的 State
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', email2fa: '', cost: '', status: 'alive', description: '', region: '' });
+  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', email2fa: '', cost: '', income: '', accountName: '', status: 'alive', description: '', region: '' });
 
   // 独立的账号粘贴框 与 2FA单独字段
   const [accountFormData, setAccountFormData] = useState({
@@ -522,6 +553,8 @@ const AccountInventory = ({ setToastMessage }) => {
     twoFactor: '',
     email2fa: '',
     cost: '',
+    income: '',
+    accountName: '',
     status: 'alive',
     date: new Date().toISOString().split('T')[0],
     description: '',
@@ -548,6 +581,34 @@ const AccountInventory = ({ setToastMessage }) => {
     if (!isLoading) localStorage.setItem('oracle_finance_accounts', JSON.stringify(accounts));
   }, [accounts, isLoading]);
 
+  const syncTransaction = async (accountId, type, amount, date, accountName) => {
+    const numAmount = parseFloat(amount);
+    const txId = `${accountId}-${type}`;
+    if (numAmount > 0) {
+      const txData = {
+        type: type === 'cost' ? 'expense' : 'income',
+        amount: numAmount,
+        category: type === 'cost' ? '账号成本' : '账号收入',
+        date: date,
+        description: accountName || ''
+      };
+      try {
+        await fetch(`/api/transactions/${txId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+          body: JSON.stringify(txData)
+        });
+      } catch(e) {}
+    } else {
+      try {
+        await fetch(`/api/transactions/${txId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
+        });
+      } catch(e) {}
+    }
+  };
+
   // 处理表单提交 (整体加密账号数据，并附带标识)
   const handleAccSubmit = async (e) => {
     e.preventDefault();
@@ -564,6 +625,8 @@ const AccountInventory = ({ setToastMessage }) => {
       twoFactor: accountFormData.twoFactor || '',
       email2fa: accountFormData.email2fa || '',
       cost: parseFloat(accountFormData.cost) || 0,
+      income: parseFloat(accountFormData.income) || 0,
+      accountName: accountFormData.accountName || '',
       region: accountFormData.region || '',
     };
 
@@ -592,13 +655,16 @@ const AccountInventory = ({ setToastMessage }) => {
       if (setToastMessage) {
         setToastMessage('账号已安全加密并录入');
       }
+
+      await syncTransaction(newAccount.id, 'cost', accountFormData.cost, accountFormData.date, accountFormData.accountName);
+      await syncTransaction(newAccount.id, 'income', accountFormData.income, accountFormData.date, accountFormData.accountName);
     } catch (e) {
       console.log('保存失败', e);
       alert('保存到云端失败：' + e.message);
     }
 
     // 清空表单，保留日期等选项
-    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', cost: '', description: '', region: '' }));
+    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', cost: '', income: '', accountName: '', description: '', region: '' }));
   };
 
   const handleAccDelete = async (id) => {
@@ -623,6 +689,8 @@ const AccountInventory = ({ setToastMessage }) => {
       twoFactor: acc.twoFactor || '',
       email2fa: acc.email2fa || '',
       cost: acc.cost,
+      income: acc.income || '',
+      accountName: acc.accountName || '',
       status: acc.status,
       description: acc.description || '',
       region: acc.region || ''
@@ -643,6 +711,8 @@ const AccountInventory = ({ setToastMessage }) => {
       twoFactor: editForm.twoFactor || '',
       email2fa: editForm.email2fa || '',
       cost: parseFloat(editForm.cost) || 0,
+      income: parseFloat(editForm.income) || 0,
+      accountName: editForm.accountName || '',
       status: editForm.status,
       description: editForm.description,
       region: editForm.region || '',
@@ -666,6 +736,9 @@ const AccountInventory = ({ setToastMessage }) => {
       if (setToastMessage) {
         setToastMessage('修改已重新加密保存');
       }
+
+      await syncTransaction(id, 'cost', editForm.cost, updatedAcc.date, editForm.accountName);
+      await syncTransaction(id, 'income', editForm.income, updatedAcc.date, editForm.accountName);
     } catch (e) {
       console.error('Update failed', e);
       alert('同步到服务器失败，请检查网络！');
@@ -746,6 +819,10 @@ const AccountInventory = ({ setToastMessage }) => {
           </div>
           <div className="grid grid-cols-2 gap-2 lg:col-span-1">
             <div><label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label><input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">单号收入</label><input type="number" value={accountFormData.income} onChange={e => setAccountFormData(p => ({ ...p, income: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 lg:col-span-1">
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">账户名</label><input type="text" value={accountFormData.accountName} onChange={e => setAccountFormData(p => ({ ...p, accountName: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" placeholder="如: xxx" /></div>
             <div><label className="block text-xs font-medium text-gray-500 mb-1">初始状态</label><select value={accountFormData.status} onChange={e => setAccountFormData(p => ({ ...p, status: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500"><option value="alive">存活</option><option value="banned">封禁</option></select></div>
           </div>
           <div className="lg:col-span-1"><label className="block text-xs font-medium text-gray-500 mb-1">机型备注</label><input type="text" value={accountFormData.description} onChange={e => setAccountFormData(p => ({ ...p, description: e.target.value }))} className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
@@ -801,10 +878,21 @@ const AccountInventory = ({ setToastMessage }) => {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-2 gap-3 mb-3">
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">成本 (¥)</label>
                           <input type="number" step="0.01" value={editForm.cost} onChange={e => setEditForm({ ...editForm, cost: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-indigo-500 mb-1">收入 (¥)</label>
+                          <input type="number" step="0.01" value={editForm.income} onChange={e => setEditForm({ ...editForm, income: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-indigo-500 mb-1">账户名</label>
+                          <input type="text" value={editForm.accountName} onChange={e => setEditForm({ ...editForm, accountName: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" placeholder="如: xxx" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">区域</label>
@@ -841,6 +929,12 @@ const AccountInventory = ({ setToastMessage }) => {
                     <div className="flex justify-between items-center mb-3">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-gray-400">{acc.date}</span>
+                        {acc.accountName && (
+                          <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 flex items-center">
+                            <MapPin className="w-3 h-3 mr-0.5" />
+                            {acc.accountName}
+                          </span>
+                        )}
                         {acc.region && (
                           <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 flex items-center">
                             <MapPin className="w-3 h-3 mr-0.5" />
@@ -958,6 +1052,7 @@ const AccountInventory = ({ setToastMessage }) => {
                     <div className="flex flex-col gap-2 text-sm mb-3">
                       <div className="flex justify-between items-center">
                         <span className="text-gray-500 font-medium">成本: ¥{Number(acc.cost).toLocaleString()}</span>
+                        <span className="text-gray-500 font-medium">收入: ¥{Number(acc.income || 0).toLocaleString()}</span>
                       </div>
                       <div className="text-gray-600 bg-gray-50 px-2.5 py-2 rounded text-xs break-words whitespace-pre-wrap border border-gray-100 min-h-[34px]">
                         {acc.description || <span className="text-gray-400 italic">暂无备注</span>}
