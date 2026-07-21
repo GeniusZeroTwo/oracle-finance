@@ -45,13 +45,16 @@ export async function onRequest(context) {
       if (request.method === 'POST') {
         const data = await request.json();
 
+        try { await db.prepare("ALTER TABLE accounts ADD COLUMN income REAL").run(); } catch(e) {}
+        try { await db.prepare("ALTER TABLE accounts ADD COLUMN accountName TEXT").run(); } catch(e) {}
+
         const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
         const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
         const encryptedEmailTwoFactor = await encryptData(data.email2fa, env.AES_SECRET_KEY);
         const encryptedVerificationCode = await encryptData(data.verificationCode, env.AES_SECRET_KEY);
 
         await db.prepare(
-          "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region, email2fa, verificationCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region, email2fa, verificationCode, income, accountName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).bind(
           data.id,
           encryptedEmail,
@@ -63,7 +66,9 @@ export async function onRequest(context) {
           data.description || '',
           data.region || '',
           encryptedEmailTwoFactor,
-          encryptedVerificationCode
+          encryptedVerificationCode,
+          data.income || 0,
+          data.accountName || ''
         ).run();
 
         return new Response(JSON.stringify({ success: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
@@ -92,13 +97,16 @@ export async function onRequest(context) {
     if (request.method === 'PUT') {
       const data = await request.json();
       
+      try { await db.prepare("ALTER TABLE accounts ADD COLUMN income REAL").run(); } catch(e) {}
+      try { await db.prepare("ALTER TABLE accounts ADD COLUMN accountName TEXT").run(); } catch(e) {}
+
       const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
       const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
       const encryptedEmailTwoFactor = await encryptData(data.email2fa, env.AES_SECRET_KEY);
       const encryptedVerificationCode = await encryptData(data.verificationCode, env.AES_SECRET_KEY);
 
       await db.prepare(
-        "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ?, region = ?, email2fa = ?, verificationCode = ? WHERE id = ?"
+        "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ?, region = ?, email2fa = ?, verificationCode = ?, income = ?, accountName = ? WHERE id = ?"
       ).bind(
         encryptedEmail,
         'MERGED_DATA',
@@ -110,6 +118,8 @@ export async function onRequest(context) {
         data.region || '',
         encryptedEmailTwoFactor,
         encryptedVerificationCode,
+        data.income || 0,
+        data.accountName || '',
         id
       ).run();
       
