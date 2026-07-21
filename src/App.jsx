@@ -5,7 +5,7 @@ import {
   Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Server, Lock,
   KeyRound, ShieldCheck, RefreshCw, Box, LayoutDashboard, Copy,
   CheckCircle2, Ban, AlertCircle, LogOut, Edit, MapPin, Search,
-  ChevronDown, ChevronRight
+  ChevronDown, ChevronRight, ArrowUpDown
 } from 'lucide-react';
 
 // ==========================================
@@ -170,6 +170,9 @@ const FinanceDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [formData, setFormData] = useState({ type: 'income', amount: '', category: '', date: new Date().toISOString().split('T')[0], description: '' });
 
+  const [sortOrder, setSortOrder] = useState('entry_desc');
+  const [txSearch, setTxSearch] = useState('');
+
   const currentMonthStr = new Date().toISOString().slice(0, 7);
   const [expandedMonths, setExpandedMonths] = useState({ [currentMonthStr]: true });
 
@@ -177,18 +180,64 @@ const FinanceDashboard = () => {
     setExpandedMonths(prev => ({ ...prev, [month]: !prev[month] }));
   };
 
-  const groupedTransactions = useMemo(() => {
-    const groups = {};
-    transactions.forEach(t => {
-      const month = (t.date || '').slice(0, 7);
-      if (!groups[month]) groups[month] = [];
-      groups[month].push(t);
-    });
-    return Object.keys(groups).sort((a, b) => b.localeCompare(a)).map(month => ({
-      month,
-      txs: groups[month].sort((a, b) => new Date(b.date) - new Date(a.date))
-    }));
-  }, [transactions]);
+  const processedTransactions = useMemo(() => {
+    let filtered = transactions;
+    if (txSearch.trim()) {
+      const q = txSearch.toLowerCase().trim();
+      filtered = filtered.filter(t => 
+        (t.category || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q) ||
+        (t.date || '').includes(q) ||
+        (t.type === 'income' ? '进账' : '成本').includes(q) ||
+        String(t.amount || '').includes(q)
+      );
+    }
+
+    const txWithIndex = filtered.map((t, idx) => ({ ...t, _entryIndex: idx }));
+
+    if (sortOrder === 'entry_desc') {
+      return [...txWithIndex].sort((a, b) => {
+        const numA = Number(a.id), numB = Number(b.id);
+        if (!isNaN(numA) && !isNaN(numB) && Math.abs(numA - numB) > 100) return numB - numA;
+        return a._entryIndex - b._entryIndex;
+      });
+    }
+
+    if (sortOrder === 'entry_asc') {
+      return [...txWithIndex].sort((a, b) => {
+        const numA = Number(a.id), numB = Number(b.id);
+        if (!isNaN(numA) && !isNaN(numB) && Math.abs(numA - numB) > 100) return numA - numB;
+        return b._entryIndex - a._entryIndex;
+      });
+    }
+
+    if (sortOrder === 'date_desc') {
+      return [...txWithIndex].sort((a, b) => new Date(b.date) - new Date(a.date));
+    }
+
+    if (sortOrder === 'date_asc') {
+      return [...txWithIndex].sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    if (sortOrder === 'month_grouped') {
+      const groups = {};
+      txWithIndex.forEach(t => {
+        const month = (t.date || '').slice(0, 7);
+        if (!groups[month]) groups[month] = [];
+        groups[month].push(t);
+      });
+      return Object.keys(groups).sort((a, b) => b.localeCompare(a)).map(month => ({
+        month,
+        txs: groups[month].sort((a, b) => {
+          const numA = Number(a.id), numB = Number(b.id);
+          if (!isNaN(numA) && !isNaN(numB) && Math.abs(numA - numB) > 100) return numB - numA;
+          return a._entryIndex - b._entryIndex;
+        })
+      }));
+    }
+
+    return txWithIndex;
+  }, [transactions, sortOrder, txSearch]);
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -346,38 +395,118 @@ const FinanceDashboard = () => {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50"><h2 className="text-lg font-semibold text-gray-800">业务流水明细</h2></div>
-        {groupedTransactions.length > 0 ? (
+        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-gray-800">业务流水明细</h2>
+            <span className="bg-indigo-50 text-indigo-700 text-xs font-medium px-2.5 py-1 rounded-full">
+              共 {transactions.length} 笔记录
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="搜索分类/账户/金额..."
+                value={txSearch}
+                onChange={(e) => setTxSearch(e.target.value)}
+                className="pl-9 pr-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 outline-none w-48"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 bg-white border border-gray-300 px-2.5 py-1.5 rounded-lg shadow-sm">
+              <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
+              <label className="text-xs text-gray-500 font-medium">排序方式:</label>
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+                className="bg-transparent text-gray-700 text-xs font-medium focus:outline-none cursor-pointer"
+              >
+                <option value="entry_desc">按录入先后 (最新在前)</option>
+                <option value="entry_asc">按录入先后 (最早在前)</option>
+                <option value="date_desc">按交易日期 (最新在前)</option>
+                <option value="date_asc">按交易日期 (最早在前)</option>
+                <option value="month_grouped">按月份分组</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {processedTransactions.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left text-gray-500">
               <thead className="text-xs text-gray-400 uppercase bg-gray-50">
-                <tr><th className="px-6 py-3 font-medium">日期</th><th className="px-6 py-3 font-medium">类型</th><th className="px-6 py-3 font-medium">分类</th><th className="px-6 py-3 font-medium">账户名</th><th className="px-6 py-3 font-medium text-right">金额</th><th className="px-6 py-3 font-medium text-center">操作</th></tr>
+                <tr>
+                  <th className="px-6 py-3 font-medium">日期</th>
+                  <th className="px-6 py-3 font-medium">类型</th>
+                  <th className="px-6 py-3 font-medium">分类</th>
+                  <th className="px-6 py-3 font-medium">账户名</th>
+                  <th className="px-6 py-3 font-medium text-right">金额</th>
+                  <th className="px-6 py-3 font-medium text-center">操作</th>
+                </tr>
               </thead>
               <tbody>
-                {groupedTransactions.map(({ month, txs }) => (
-                  <React.Fragment key={month}>
-                    <tr onClick={() => toggleMonth(month)} className="bg-gray-100/50 cursor-pointer hover:bg-gray-100 transition-colors">
-                      <td colSpan="6" className="px-6 py-3 font-medium text-gray-700 flex items-center gap-2">
-                        {expandedMonths[month] ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
-                        {month} ({txs.length} 笔)
+                {sortOrder === 'month_grouped' ? (
+                  processedTransactions.map(({ month, txs }) => (
+                    <React.Fragment key={month}>
+                      <tr onClick={() => toggleMonth(month)} className="bg-gray-100/50 cursor-pointer hover:bg-gray-100 transition-colors">
+                        <td colSpan="6" className="px-6 py-3 font-medium text-gray-700 flex items-center gap-2">
+                          {expandedMonths[month] ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
+                          {month} ({txs.length} 笔)
+                        </td>
+                      </tr>
+                      {expandedMonths[month] && txs.map((t) => (
+                        <tr key={t.id} className="bg-white border-b hover:bg-gray-50">
+                          <td className="px-6 py-4">{t.date}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${t.type === 'income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                              {t.type === 'income' ? '进账' : '成本'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{t.category}</td>
+                          <td className="px-6 py-4">{t.description || '-'}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
+                            {t.type === 'income' ? '+' : '-'}¥{t.amount.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <button onClick={() => handleTxDelete(t.id)} className="text-gray-400 hover:text-red-500 p-1">
+                              <Trash2 className="w-4 h-4 mx-auto" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))
+                ) : (
+                  processedTransactions.map((t) => (
+                    <tr key={t.id} className="bg-white border-b hover:bg-gray-50">
+                      <td className="px-6 py-4">{t.date}</td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${t.type === 'income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {t.type === 'income' ? '进账' : '成本'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-medium text-gray-900">{t.category}</td>
+                      <td className="px-6 py-4">{t.description || '-'}</td>
+                      <td className={`px-6 py-4 text-right font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
+                        {t.type === 'income' ? '+' : '-'}¥{t.amount.toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <button onClick={() => handleTxDelete(t.id)} className="text-gray-400 hover:text-red-500 p-1">
+                          <Trash2 className="w-4 h-4 mx-auto" />
+                        </button>
                       </td>
                     </tr>
-                    {expandedMonths[month] && txs.map((t) => (
-                      <tr key={t.id} className="bg-white border-b hover:bg-gray-50">
-                        <td className="px-6 py-4">{t.date}</td>
-                        <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium ${t.type === 'income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{t.type === 'income' ? '进账' : '成本'}</span></td>
-                        <td className="px-6 py-4 font-medium text-gray-900">{t.category}</td>
-                        <td className="px-6 py-4">{t.description || '-'}</td>
-                        <td className={`px-6 py-4 text-right font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>{t.type === 'income' ? '+' : '-'}¥{t.amount.toLocaleString()}</td>
-                        <td className="px-6 py-4 text-center"><button onClick={() => handleTxDelete(t.id)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-        ) : <div className="p-10 text-center text-gray-400"><p>暂无业务流水记录</p></div>}
+        ) : (
+          <div className="p-10 text-center text-gray-400">
+            <p>{txSearch ? '未搜索到匹配的业务流水记录' : '暂无业务流水记录'}</p>
+          </div>
+        )}
       </div>
     </div>
   );
