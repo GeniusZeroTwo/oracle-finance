@@ -14,6 +14,16 @@ export async function onRequestPost(context) {
     }
 
     // 🆕 安全修复：防止暴力猜解破解 (Brute-force protection)
+    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const ipAttemptsKey = `attempts:ip:${clientIp}`;
+    const ipAttempts = parseInt(await env.AUTH_KV.get(ipAttemptsKey) || '0');
+    if (ipAttempts >= 5) {
+      return new Response(JSON.stringify({ error: "当前 IP 验证错误次数过多，已被临时锁定 15 分钟" }), {
+        status: 429, 
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const attempts = parseInt(await env.AUTH_KV.get('attempts:admin') || '0');
     if (attempts >= 5) {
       return new Response(JSON.stringify({ error: "错误次数过多，系统已锁定该验证码，请重新获取" }), {
@@ -27,7 +37,10 @@ export async function onRequestPost(context) {
 
     // 3. 校验比对
     if (!storedCode || storedCode !== code) {
-      // 记录失败次数，防止爆破，5 分钟有效 (跟随验证码有效期)
+      // 记录 IP 尝试次数（锁定 15 分钟）与当前验证码尝试次数（5 分钟有效）
+      if (clientIp !== 'unknown') {
+        await env.AUTH_KV.put(ipAttemptsKey, (ipAttempts + 1).toString(), { expirationTtl: 900 });
+      }
       await env.AUTH_KV.put('attempts:admin', (attempts + 1).toString(), { expirationTtl: 300 });
       return new Response(JSON.stringify({ error: "验证码错误或已过期" }), { 
         status: 401,
@@ -37,6 +50,9 @@ export async function onRequestPost(context) {
 
     // 4. 验证成功：清除失败记录并生成安全的访问 Token
     await env.AUTH_KV.delete('attempts:admin');
+    if (clientIp !== 'unknown') {
+      await env.AUTH_KV.delete(ipAttemptsKey);
+    }
     // 使用 Web Crypto API 生成高强度随机 UUID
     const token = crypto.randomUUID();
 

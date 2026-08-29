@@ -1,25 +1,44 @@
 export async function onRequestPost(context) {
-  const { env } = context;
+  const { request, env } = context;
   
   try {
-    // 🆕 安全修复 1：防止发信轰炸 (Rate Limiting)
-    // 检查过去 60 秒内是否已经发送过请求
-    const isRateLimited = await env.AUTH_KV.get('ratelimit:admin');
-    if (isRateLimited) {
+    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+    // 1. IP 级频控校验 (防单 IP 恶意刷接口)
+    const ipRateLimitKey = `ratelimit:ip:${clientIp}`;
+    const isIpRateLimited = await env.AUTH_KV.get(ipRateLimitKey);
+    if (isIpRateLimited) {
+      return new Response(JSON.stringify({ error: "当前网络请求过于频繁，请稍后再试" }), { 
+        status: 429,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // 2. 全局频控校验 (防 Telegram 发信轰炸)
+    const isGlobalRateLimited = await env.AUTH_KV.get('ratelimit:admin');
+    if (isGlobalRateLimited) {
       return new Response(JSON.stringify({ error: "请求过于频繁，请等待 60 秒后再试" }), { 
         status: 429,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    // 记录发送时间戳，限制 60 秒内只能发送一次
+    // 记录发送频控状态 (单 IP 与全局均锁定 60 秒)
     await env.AUTH_KV.put('ratelimit:admin', 'locked', { expirationTtl: 60 });
+    if (clientIp !== 'unknown') {
+      await env.AUTH_KV.put(ipRateLimitKey, 'locked', { expirationTtl: 60 });
+    }
 
-    // 1. 生成 6 位随机数字验证码
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    // 3. 密码学安全随机数生成 6 位数字验证码
+    const randomBuffer = new Uint32Array(1);
+    crypto.getRandomValues(randomBuffer);
+    const code = (100000 + (randomBuffer[0] % 900000)).toString();
 
-    // 2. 将验证码存入 Cloudflare KV，设置有效期为 5 分钟 (300 秒)
+    // 4. 将验证码存入 Cloudflare KV，设置有效期为 5 分钟 (300 秒)
     await env.AUTH_KV.put('code:admin', code, { expirationTtl: 300 });
+
+    // 5. 关键修复：清除旧验证码的错误重试计数，解除达到 5 次后的永久锁死状态
+    await env.AUTH_KV.delete('attempts:admin');
 
     // 3. 准备 Telegram 发送所需的环境变量
     const botToken = env.TG_BOT_TOKEN;

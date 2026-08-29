@@ -130,7 +130,7 @@ export async function onRequest(context) {
 
   } catch (e) {
     console.error('accounts/[[id]].js 顶层错误:', e.message, e.stack);
-    return new Response(JSON.stringify({ error: "服务器内部错误: " + e.message }), {
+    return new Response(JSON.stringify({ error: "服务器内部错误，处理请求失败" }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });

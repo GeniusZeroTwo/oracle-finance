@@ -76,7 +76,7 @@ export async function onRequest(context) {
 
   } catch (error) {
     console.error('transactions/[[id]].js 顶层错误:', error.message, error.stack);
-    return new Response(JSON.stringify({ error: "服务器内部错误: " + error.message }), { 
+    return new Response(JSON.stringify({ error: "服务器内部错误，处理请求失败" }), { 
       status: 500, 
       headers: { 'Content-Type': 'application/json' } 
     });

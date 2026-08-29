@@ -59,6 +59,7 @@ const Login = ({ setAuth }) => {
       if (!res.ok) throw new Error(data.error || '验证码错误');
       sessionStorage.setItem('oracle_finance_auth', 'true');
       sessionStorage.setItem('token', data.token);
+      localStorage.removeItem('oracle_finance_accounts');
       setAuth(true);
     } catch (error) {
       setLoginError(error.message || '验证失败');
@@ -702,6 +703,9 @@ const AccountInventory = ({ setToastMessage }) => {
   });
 
   useEffect(() => {
+    // 首次进入主动清除本地存储中的历史账号明文缓存，消除磁盘泄漏风险
+    localStorage.removeItem('oracle_finance_accounts');
+
     const fetchAccounts = async () => {
       try {
         const response = await fetch('/api/accounts', { headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } });
@@ -710,16 +714,12 @@ const AccountInventory = ({ setToastMessage }) => {
           setAccounts(data);
         } else throw new Error('API未就绪');
       } catch (error) {
-        const saved = localStorage.getItem('oracle_finance_accounts');
-        setAccounts(saved ? JSON.parse(saved) : []);
+        console.error('拉取账号数据失败:', error);
+        setAccounts([]);
       } finally { setIsLoading(false); }
     };
     fetchAccounts();
   }, []);
-
-  useEffect(() => {
-    if (!isLoading) localStorage.setItem('oracle_finance_accounts', JSON.stringify(accounts));
-  }, [accounts, isLoading]);
 
   const syncTransaction = async (accountId, type, amount, date, accountName) => {
     const numAmount = parseFloat(amount);
@@ -1275,9 +1275,21 @@ export default function App() {
     if (msg) toastTimeoutRef.current = setTimeout(() => setToastMessage(''), duration);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const token = sessionStorage.getItem('token');
+    if (token) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      } catch (e) {
+        console.error('服务端登出通知失败:', e);
+      }
+    }
     sessionStorage.removeItem('oracle_finance_auth');
     sessionStorage.removeItem('token');
+    localStorage.removeItem('oracle_finance_accounts');
     setIsAuthenticated(false);
   };
 
