@@ -13,7 +13,7 @@ export async function onRequest(context) {
     // ==========================================
     if (!id) {
       if (request.method === 'GET') {
-        const { results } = await db.prepare("SELECT * FROM accounts ORDER BY date DESC").all();
+        const { results } = await db.prepare("SELECT * FROM accounts ORDER BY rowid DESC").all();
 
         const decryptedResults = await Promise.all(results.map(async (acc) => {
           let decryptedAccountData = '';

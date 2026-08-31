@@ -673,14 +673,47 @@ const AccountInventory = ({ setToastMessage }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [exchangeRate, setExchangeRate] = useState(7.2);
+  const [isFetchingRate, setIsFetchingRate] = useState(false);
+  const [rateUpdatedAt, setRateUpdatedAt] = useState('');
+  const [accountSortOrder, setAccountSortOrder] = useState('entry_desc');
+
+  const fetchExchangeRate = async () => {
+    setIsFetchingRate(true);
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD');
+      const data = await res.json();
+      if (data?.rates?.CNY) {
+        setExchangeRate(Number(data.rates.CNY));
+        const now = new Date();
+        setRateUpdatedAt(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+      }
+    } catch (e) {
+      console.error('获取实时汇率失败，保留当前汇率:', e);
+    } finally {
+      setIsFetchingRate(false);
+    }
+  };
 
   useEffect(() => {
-    fetch('https://open.er-api.com/v6/latest/USD')
-      .then(res => res.json())
-      .then(data => {
-        if (data?.rates?.CNY) setExchangeRate(data.rates.CNY);
-      })
-      .catch(e => console.error('获取汇率失败', e));
+    fetchExchangeRate();
+
+    // 自动刷新：每 10 分钟自动在后台静默获取一次最新汇率
+    const intervalId = setInterval(() => {
+      fetchExchangeRate();
+    }, 10 * 60 * 1000);
+
+    // 页面切回可见时自动刷新最新汇率
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchExchangeRate();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   // 用于控制卡片编辑状态的 State
@@ -919,10 +952,11 @@ const AccountInventory = ({ setToastMessage }) => {
   }, [accounts]);
 
   const displayAccounts = useMemo(() => {
-    return accounts.map(acc => {
+    const mapped = accounts.map((acc, idx) => {
       // 后端已自动解密，统一返回明文
       return {
         ...acc,
+        _entryIndex: idx,
         decryptedAccountData: acc.email || '',
         decryptedTwoFactor: acc.twoFactor || '',
         decryptedEmailTwoFactor: acc.email2fa || '',
@@ -938,7 +972,41 @@ const AccountInventory = ({ setToastMessage }) => {
         (acc.date || '').includes(q)
       );
     });
-  }, [accounts, searchQuery]);
+
+    // 排序逻辑：默认 entry_desc (按添加时间 - 最新在前)
+    if (accountSortOrder === 'entry_desc') {
+      return [...mapped].sort((a, b) => {
+        // id 格式形如 Date.now() + 随机串，前13位通常为添加时间戳
+        const tsA = parseInt(String(a.id).slice(0, 13), 10);
+        const tsB = parseInt(String(b.id).slice(0, 13), 10);
+        if (!isNaN(tsA) && !isNaN(tsB) && Math.abs(tsA - tsB) > 50) {
+          return tsB - tsA;
+        }
+        return a._entryIndex - b._entryIndex;
+      });
+    }
+
+    if (accountSortOrder === 'entry_asc') {
+      return [...mapped].sort((a, b) => {
+        const tsA = parseInt(String(a.id).slice(0, 13), 10);
+        const tsB = parseInt(String(b.id).slice(0, 13), 10);
+        if (!isNaN(tsA) && !isNaN(tsB) && Math.abs(tsA - tsB) > 50) {
+          return tsA - tsB;
+        }
+        return b._entryIndex - a._entryIndex;
+      });
+    }
+
+    if (accountSortOrder === 'date_desc') {
+      return [...mapped].sort((a, b) => new Date(b.date) - new Date(a.date));
+    }
+
+    if (accountSortOrder === 'date_asc') {
+      return [...mapped].sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    return mapped;
+  }, [accounts, searchQuery, accountSortOrder]);
 
   if (isLoading) return <div className="text-center text-gray-500 py-10">加载库存数据中...</div>;
 
@@ -970,18 +1038,53 @@ const AccountInventory = ({ setToastMessage }) => {
           </div>
           <div className="grid grid-cols-2 gap-2 lg:col-span-1">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">单号成本</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-gray-500">单号成本</label>
+                {accountFormData.costCurrency === 'USD' && (
+                  <button
+                    type="button"
+                    onClick={fetchExchangeRate}
+                    disabled={isFetchingRate}
+                    className="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer"
+                    title="点击刷新实时汇率"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isFetchingRate ? 'animate-spin' : ''}`} />
+                    <span>1$ = ¥{exchangeRate.toFixed(4)}</span>
+                  </button>
+                )}
+              </div>
               <div className="flex bg-gray-50 border border-gray-300 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-indigo-500">
                 <button
                   type="button"
-                  onClick={() => setAccountFormData(p => ({ ...p, costCurrency: p.costCurrency === 'CNY' ? 'USD' : 'CNY' }))}
+                  onClick={() => {
+                    setAccountFormData(p => {
+                      const nextCur = p.costCurrency === 'CNY' ? 'USD' : 'CNY';
+                      if (nextCur === 'USD') fetchExchangeRate();
+                      return { ...p, costCurrency: nextCur };
+                    });
+                  }}
                   className="bg-gray-200 hover:bg-gray-300 border-r border-gray-300 text-gray-700 text-xs font-bold px-3 outline-none transition-colors"
-                  title="点击切换货币"
+                  title="点击切换货币 (人民币 ¥ / 美元 $)"
                 >
                   {accountFormData.costCurrency === 'CNY' ? '¥' : '$'}
                 </button>
-                <input type="number" value={accountFormData.cost} onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))} step="0.01" className="block w-full bg-transparent p-2 text-sm outline-none" placeholder={accountFormData.costCurrency === 'USD' ? `按汇率 ${exchangeRate} 换算` : ''} />
+                <input
+                  type="number"
+                  value={accountFormData.cost}
+                  onChange={e => setAccountFormData(p => ({ ...p, cost: e.target.value }))}
+                  step="0.01"
+                  className="block w-full bg-transparent p-2 text-sm outline-none"
+                  placeholder={accountFormData.costCurrency === 'USD' ? `输入美元金额` : '0.00'}
+                />
               </div>
+              {accountFormData.costCurrency === 'USD' && (
+                <div className="mt-1 flex items-center justify-between text-[11px] text-indigo-600 bg-indigo-50/70 px-2 py-0.5 rounded border border-indigo-100/60 font-medium">
+                  <span>
+                    实时折合: <strong className="font-bold text-indigo-700">¥{(parseFloat(accountFormData.cost || 0) * exchangeRate).toFixed(2)}</strong>
+                  </span>
+                  {rateUpdatedAt && <span className="text-[10px] text-gray-400">({rateUpdatedAt} 更新)</span>}
+                </div>
+              )}
             </div>
             <div><label className="block text-xs font-medium text-gray-500 mb-1">单号收入</label><input type="number" value={accountFormData.income} onChange={e => setAccountFormData(p => ({ ...p, income: e.target.value }))} step="0.01" className="block w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm outline-none focus:ring-indigo-500" /></div>
           </div>
@@ -999,16 +1102,39 @@ const AccountInventory = ({ setToastMessage }) => {
       {/* 卡片式库存展示：不再割裂账号密码 */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h2 className="text-lg font-semibold text-gray-800">加密库存 (卡片视图)</h2>
-          <div className="relative w-full sm:w-auto">
-            <input
-              type="text"
-              placeholder="搜索账号、备注或区域..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full sm:w-72 pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 bg-white shadow-sm"
-            />
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-gray-800">加密库存 (卡片视图)</h2>
+            <span className="bg-indigo-50 text-indigo-700 text-xs font-medium px-2.5 py-1 rounded-full">
+              共 {displayAccounts.length} 个账号
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            <div className="relative flex-1 sm:flex-initial">
+              <input
+                type="text"
+                placeholder="搜索账号、备注或区域..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full sm:w-64 pl-9 pr-4 py-1.5 border border-gray-300 rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500 bg-white shadow-sm"
+              />
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-white border border-gray-300 px-2.5 py-1.5 rounded-lg shadow-sm">
+              <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
+              <label className="text-xs text-gray-500 font-medium whitespace-nowrap">排序方式:</label>
+              <select
+                value={accountSortOrder}
+                onChange={(e) => setAccountSortOrder(e.target.value)}
+                className="bg-transparent text-gray-700 text-xs font-medium focus:outline-none cursor-pointer"
+              >
+                <option value="entry_desc">按添加时间 (最新在前)</option>
+                <option value="entry_asc">按添加时间 (最早在前)</option>
+                <option value="date_desc">按业务日期 (最新在前)</option>
+                <option value="date_asc">按业务日期 (最早在前)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -1044,18 +1170,53 @@ const AccountInventory = ({ setToastMessage }) => {
 
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <div>
-                          <label className="block text-xs font-medium text-indigo-500 mb-1">成本 (¥)</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-medium text-indigo-500">
+                              成本 ({editForm.costCurrency === 'CNY' ? '¥' : '$'})
+                            </label>
+                            {editForm.costCurrency === 'USD' && (
+                              <button
+                                type="button"
+                                onClick={fetchExchangeRate}
+                                disabled={isFetchingRate}
+                                className="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer"
+                                title="点击刷新实时汇率"
+                              >
+                                <RefreshCw className={`w-2.5 h-2.5 ${isFetchingRate ? 'animate-spin' : ''}`} />
+                                <span>1$ = ¥{exchangeRate.toFixed(4)}</span>
+                              </button>
+                            )}
+                          </div>
                           <div className="flex bg-white border border-indigo-200 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-indigo-400">
                             <button
                               type="button"
-                              onClick={() => setEditForm(p => ({ ...p, costCurrency: p.costCurrency === 'CNY' ? 'USD' : 'CNY' }))}
+                              onClick={() => {
+                                setEditForm(p => {
+                                  const nextCur = p.costCurrency === 'CNY' ? 'USD' : 'CNY';
+                                  if (nextCur === 'USD') fetchExchangeRate();
+                                  return { ...p, costCurrency: nextCur };
+                                });
+                              }}
                               className="bg-indigo-100 hover:bg-indigo-200 border-r border-indigo-200 text-indigo-700 text-xs font-bold px-3 outline-none transition-colors"
-                              title="点击切换货币"
+                              title="点击切换货币 (人民币 ¥ / 美元 $)"
                             >
                               {editForm.costCurrency === 'CNY' ? '¥' : '$'}
                             </button>
-                            <input type="number" step="0.01" value={editForm.cost} onChange={e => setEditForm({ ...editForm, cost: e.target.value })} className="w-full text-sm bg-transparent p-2 outline-none" placeholder={editForm.costCurrency === 'USD' ? `按汇率 ${exchangeRate} 换算` : ''} />
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editForm.cost}
+                              onChange={e => setEditForm({ ...editForm, cost: e.target.value })}
+                              className="w-full text-sm bg-transparent p-2 outline-none"
+                              placeholder={editForm.costCurrency === 'USD' ? '输入美元金额' : '0.00'}
+                            />
                           </div>
+                          {editForm.costCurrency === 'USD' && (
+                            <div className="mt-1 flex items-center justify-between text-[11px] text-indigo-600 bg-indigo-100/50 px-2 py-0.5 rounded font-medium">
+                              <span>实时折合: <strong className="font-bold">¥{(parseFloat(editForm.cost || 0) * exchangeRate).toFixed(2)}</strong></span>
+                              {rateUpdatedAt && <span className="text-[10px] text-gray-400">({rateUpdatedAt} 更新)</span>}
+                            </div>
+                          )}
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">收入 (¥)</label>
