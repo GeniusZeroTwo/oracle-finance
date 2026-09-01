@@ -60,9 +60,12 @@ export async function decryptData(cipherText, envKey) {
       const ivBytes = Uint8Array.from(atob(parts[1]), c => c.charCodeAt(0));
       const cipherBytes = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
       
-      // 优先使用用户配置的 envKey，若未配置则尝试旧默认密钥以确保历史数据可救回
-      const keyString = envKey || 'default_backend_secret_key_2026_CHANGE_ME';
-      const keyMaterial = await getLegacyKey(keyString, "decrypt");
+      if (!envKey) {
+        console.error("AES-GCM 旧版兼容解密失败：缺少 AES_SECRET_KEY 环境变量");
+        return '[加密配置异常：缺少密钥]';
+      }
+      
+      const keyMaterial = await getLegacyKey(envKey, "decrypt");
       
       const plaintextBuffer = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: ivBytes },
