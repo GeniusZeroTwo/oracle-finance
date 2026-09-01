@@ -20,6 +20,34 @@ const initialTransactions = [
 // 后端负责加解密，前端不再包含加密密钥或算法
 
 // ==========================================
+// 统一鉴权请求工具 (自动带 Token，自动处理 401 会话失效)
+// ==========================================
+const authFetch = async (url, options = {}) => {
+  const token = sessionStorage.getItem('token');
+  const headers = {
+    ...(options.headers || {}),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(url, { ...options, headers });
+    if (response.status === 401) {
+      sessionStorage.removeItem('oracle_finance_auth');
+      sessionStorage.removeItem('token');
+      localStorage.removeItem('oracle_finance_accounts');
+      window.dispatchEvent(new CustomEvent('oracle_finance_auth_expired', {
+        detail: { message: '登录会话已过期或在其他设备登录，请重新验证' }
+      }));
+    }
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// ==========================================
 // 独立组件 1：登录界面 (Login)
 // ==========================================
 const Login = ({ setAuth }) => {
@@ -243,7 +271,7 @@ const FinanceDashboard = () => {
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
-        const response = await fetch('/api/transactions', { headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } });
+        const response = await authFetch('/api/transactions');
         if (response.ok) setTransactions(await response.json());
         else throw new Error('API未就绪');
       } catch (error) {
@@ -265,7 +293,7 @@ const FinanceDashboard = () => {
     const newTx = { ...formData, id: Date.now().toString(), amount: parseFloat(formData.amount) };
     setTransactions(prev => [newTx, ...prev]);
     try {
-      await fetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }, body: JSON.stringify(newTx) });
+      await authFetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newTx) });
     } catch (e) { console.log('保存交易到本地'); }
     setFormData(prev => ({ ...prev, amount: '', category: '', description: '' }));
   };
@@ -273,7 +301,7 @@ const FinanceDashboard = () => {
   const handleTxDelete = async (id) => {
     if (!window.confirm('确定删除记录？')) return;
     setTransactions(prev => prev.filter(t => t.id !== id));
-    try { await fetch(`/api/transactions/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } }); } catch (e) { }
+    try { await authFetch(`/api/transactions/${id}`, { method: 'DELETE' }); } catch (e) { }
   };
 
   const stats = useMemo(() => {
@@ -741,7 +769,7 @@ const AccountInventory = ({ setToastMessage }) => {
 
     const fetchAccounts = async () => {
       try {
-        const response = await fetch('/api/accounts', { headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } });
+        const response = await authFetch('/api/accounts');
         if (response.ok) {
           const data = await response.json();
           setAccounts(data);
@@ -766,17 +794,16 @@ const AccountInventory = ({ setToastMessage }) => {
         description: accountName || ''
       };
       try {
-        await fetch(`/api/transactions/${txId}`, {
+        await authFetch(`/api/transactions/${txId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(txData)
         });
       } catch(e) {}
     } else {
       try {
-        await fetch(`/api/transactions/${txId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }
+        await authFetch(`/api/transactions/${txId}`, {
+          method: 'DELETE'
         });
       } catch(e) {}
     }
@@ -812,9 +839,9 @@ const AccountInventory = ({ setToastMessage }) => {
     setAccounts(prev => [newAccount, ...prev]);
 
     try {
-      const res = await fetch('/api/accounts', {
+      const res = await authFetch('/api/accounts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAccount)
       });
 
@@ -848,14 +875,14 @@ const AccountInventory = ({ setToastMessage }) => {
   const handleAccDelete = async (id) => {
     if (!window.confirm('删除账号记录不可恢复，确定删除？')) return;
     setAccounts(prev => prev.filter(t => t.id !== id));
-    try { await fetch(`/api/accounts/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } }); } catch (e) { }
+    try { await authFetch(`/api/accounts/${id}`, { method: 'DELETE' }); } catch (e) { }
   };
 
   const handleAccStatusToggle = async (id, currentStatus) => {
     const newStatus = currentStatus === 'alive' ? 'banned' : 'alive';
     setAccounts(prev => prev.map(acc => acc.id === id ? { ...acc, status: newStatus } : acc));
     try {
-      await fetch(`/api/accounts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` }, body: JSON.stringify({ status: newStatus }) });
+      await authFetch(`/api/accounts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
     } catch (e) { }
   };
 
@@ -909,13 +936,23 @@ const AccountInventory = ({ setToastMessage }) => {
 
     try {
       // 正规调用：直接使用后端的 PUT 接口完成整条记录的原位更新
-      const res = await fetch(`/api/accounts/${id}`, {
+      const res = await authFetch(`/api/accounts/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('token')}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedAcc)
       });
 
-      if (!res.ok) throw new Error('更新请求失败');
+      if (!res.ok) {
+        let errorMsg = '更新请求失败，状态码: ' + res.status;
+        const rawText = await res.text();
+        try {
+          const errorData = JSON.parse(rawText);
+          errorMsg = errorData.error || errorMsg;
+        } catch (parseError) {
+          errorMsg += '\n非JSON返回值: ' + rawText.substring(0, 100);
+        }
+        throw new Error(errorMsg);
+      }
 
       if (setToastMessage) {
         setToastMessage('修改已重新加密保存');
@@ -925,7 +962,7 @@ const AccountInventory = ({ setToastMessage }) => {
       await syncTransaction(id, 'income', editForm.income, updatedAcc.date, editForm.accountName);
     } catch (e) {
       console.error('Update failed', e);
-      alert('同步到服务器失败，请检查网络！');
+      alert('同步到服务器失败：' + e.message);
     }
   };
 
@@ -1435,6 +1472,16 @@ export default function App() {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     if (msg) toastTimeoutRef.current = setTimeout(() => setToastMessage(''), duration);
   }, []);
+
+  useEffect(() => {
+    const handleAuthExpired = (e) => {
+      setIsAuthenticated(false);
+      const msg = e.detail?.message || '登录会话已过期，请重新登录';
+      showToast(msg, 3500);
+    };
+    window.addEventListener('oracle_finance_auth_expired', handleAuthExpired);
+    return () => window.removeEventListener('oracle_finance_auth_expired', handleAuthExpired);
+  }, [showToast]);
 
   const handleLogout = async () => {
     const token = sessionStorage.getItem('token');

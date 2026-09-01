@@ -40,16 +40,14 @@ export async function onRequest(context) {
     });
   }
 
-  // 3. 安全增强：检查 IP 和 User-Agent 以防止 Token 劫持
+  // 3. 安全校验：检查 User-Agent（防止跨设备/跨浏览器窃取 Token），放宽动态 IP 限制以适应家庭宽带、IPv6及移动网络
   try {
     const sessionData = JSON.parse(sessionDataStr);
-    const currentIp = request.headers.get('CF-Connecting-IP') || 'unknown';
     const currentUserAgent = request.headers.get('User-Agent') || 'unknown';
 
-    if (sessionData.ip !== currentIp || sessionData.userAgent !== currentUserAgent) {
-      // 若环境不匹配，立即销毁 Token 并拒绝请求
-      await env.AUTH_KV.delete(`session:${token}`);
-      return new Response(JSON.stringify({ error: "网络环境发生改变，为保证安全请重新登录" }), { 
+    // 如果会话包含 User-Agent 且与当前请求明显不匹配（跨设备/跨浏览器使用），则拒绝访问
+    if (sessionData.userAgent && sessionData.userAgent !== currentUserAgent) {
+      return new Response(JSON.stringify({ error: "检测到异地设备环境变动，请重新登录" }), { 
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
