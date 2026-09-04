@@ -47,6 +47,7 @@ export async function onRequest(context) {
 
         try { await db.prepare("ALTER TABLE accounts ADD COLUMN income REAL").run(); } catch(e) {}
         try { await db.prepare("ALTER TABLE accounts ADD COLUMN accountName TEXT").run(); } catch(e) {}
+        try { await db.prepare("ALTER TABLE accounts ADD COLUMN soldDate TEXT").run(); } catch(e) {}
 
         const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
         const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
@@ -54,7 +55,7 @@ export async function onRequest(context) {
         const encryptedVerificationCode = await encryptData(data.verificationCode, env.AES_SECRET_KEY);
 
         await db.prepare(
-          "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region, email2fa, verificationCode, income, accountName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO accounts (id, email, password, twoFactor, cost, status, date, description, region, email2fa, verificationCode, income, accountName, soldDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).bind(
           data.id,
           encryptedEmail,
@@ -68,7 +69,8 @@ export async function onRequest(context) {
           encryptedEmailTwoFactor,
           encryptedVerificationCode,
           data.income || 0,
-          data.accountName || ''
+          data.accountName || '',
+          data.soldDate || ''
         ).run();
 
         return new Response(JSON.stringify({ success: true }), { status: 201, headers: { 'Content-Type': 'application/json' } });
@@ -82,6 +84,11 @@ export async function onRequest(context) {
     // ==========================================
     if (request.method === 'DELETE') {
       await db.prepare("DELETE FROM accounts WHERE id = ?").bind(id).run();
+      try {
+        await db.prepare("DELETE FROM transactions WHERE id IN (?, ?)").bind(`${id}-cost`, `${id}-income`).run();
+      } catch (err) {
+        console.warn('级联删除关联流水异常:', err);
+      }
       return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -99,6 +106,7 @@ export async function onRequest(context) {
       
       try { await db.prepare("ALTER TABLE accounts ADD COLUMN income REAL").run(); } catch(e) {}
       try { await db.prepare("ALTER TABLE accounts ADD COLUMN accountName TEXT").run(); } catch(e) {}
+      try { await db.prepare("ALTER TABLE accounts ADD COLUMN soldDate TEXT").run(); } catch(e) {}
 
       const encryptedEmail = await encryptData(data.email, env.AES_SECRET_KEY);
       const encryptedTwoFactor = await encryptData(data.twoFactor, env.AES_SECRET_KEY);
@@ -106,7 +114,7 @@ export async function onRequest(context) {
       const encryptedVerificationCode = await encryptData(data.verificationCode, env.AES_SECRET_KEY);
 
       await db.prepare(
-        "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ?, region = ?, email2fa = ?, verificationCode = ?, income = ?, accountName = ? WHERE id = ?"
+        "UPDATE accounts SET email = ?, password = ?, twoFactor = ?, cost = ?, status = ?, date = ?, description = ?, region = ?, email2fa = ?, verificationCode = ?, income = ?, accountName = ?, soldDate = ? WHERE id = ?"
       ).bind(
         encryptedEmail,
         'MERGED_DATA',
@@ -120,6 +128,7 @@ export async function onRequest(context) {
         encryptedVerificationCode,
         data.income || 0,
         data.accountName || '',
+        data.soldDate || '',
         id
       ).run();
       

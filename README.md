@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS accounts (
 -- ALTER TABLE accounts ADD COLUMN email2fa TEXT;
 -- ALTER TABLE accounts ADD COLUMN verificationCode TEXT;
 
+-- 如果是为售出业绩归集功能升级，请执行这句：
+-- ALTER TABLE accounts ADD COLUMN soldDate TEXT;
+
 -- 2. 创建财务流水表
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,

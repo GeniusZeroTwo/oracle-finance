@@ -9,6 +9,26 @@ import {
 } from 'lucide-react';
 
 // ==========================================
+// 本地时区日期工具函数 (避免 toISOString 的 UTC 跨日跨月偏移)
+// ==========================================
+const getLocalDateStr = (d = new Date()) => {
+  const dateObj = typeof d === 'string' ? new Date(d) : d;
+  if (isNaN(dateObj.getTime())) return new Date().toLocaleDateString('en-CA');
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getLocalMonthStr = (d = new Date()) => {
+  const dateObj = typeof d === 'string' ? new Date(d) : d;
+  if (isNaN(dateObj.getTime())) return new Date().toLocaleDateString('en-CA').slice(0, 7);
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+// ==========================================
 // 模拟初始数据 (本地降级时使用)
 // ==========================================
 const initialTransactions = [
@@ -196,13 +216,14 @@ const Layout = ({ handleLogout, toastMessage }) => {
 // ==========================================
 const FinanceDashboard = () => {
   const [transactions, setTransactions] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [formData, setFormData] = useState({ type: 'income', amount: '', category: '', date: new Date().toISOString().split('T')[0], description: '' });
+  const [formData, setFormData] = useState({ type: 'income', amount: '', category: '', date: getLocalDateStr(), description: '' });
 
   const [sortOrder, setSortOrder] = useState('entry_desc');
   const [txSearch, setTxSearch] = useState('');
 
-  const currentMonthStr = new Date().toISOString().slice(0, 7);
+  const currentMonthStr = getLocalMonthStr();
   const [expandedMonths, setExpandedMonths] = useState({ [currentMonthStr]: true });
 
   const toggleMonth = (month) => {
@@ -269,24 +290,74 @@ const FinanceDashboard = () => {
   }, [transactions, sortOrder, txSearch]);
 
   useEffect(() => {
-    const fetchTransactions = async () => {
+    const fetchData = async () => {
       try {
-        const response = await authFetch('/api/transactions');
-        if (response.ok) setTransactions(await response.json());
-        else throw new Error('API未就绪');
+        const [txRes, accRes] = await Promise.all([
+          authFetch('/api/transactions'),
+          authFetch('/api/accounts')
+        ]);
+        if (txRes.ok) {
+          setTransactions(await txRes.json());
+        } else {
+          throw new Error('API未就绪');
+        }
+        if (accRes.ok) {
+          setAccounts(await accRes.json());
+        }
       } catch (error) {
-        const saved = localStorage.getItem('oracle_finance_transactions');
-        setTransactions(saved ? JSON.parse(saved) : initialTransactions);
+        const savedTx = localStorage.getItem('oracle_finance_transactions');
+        setTransactions(savedTx ? JSON.parse(savedTx) : initialTransactions);
       } finally {
         setIsLoading(false);
       }
     };
-    fetchTransactions();
+    fetchData();
   }, []);
 
   useEffect(() => {
     if (!isLoading) localStorage.setItem('oracle_finance_transactions', JSON.stringify(transactions));
   }, [transactions, isLoading]);
+
+  // 检测孤儿流水（已删账号残留在流水表中的记录，导致成本虚高）
+  const orphanTransactions = useMemo(() => {
+    if (accounts.length === 0 || transactions.length === 0) return [];
+    const accountIdSet = new Set(accounts.map(a => String(a.id)));
+    return transactions.filter(t => {
+      const match = String(t.id).match(/^(.+)-(cost|income)$/);
+      if (match) {
+        const accId = match[1];
+        return !accountIdSet.has(accId);
+      }
+      return false;
+    });
+  }, [transactions, accounts]);
+
+  const [isCleaningOrphans, setIsCleaningOrphans] = useState(false);
+
+  const handleCleanOrphans = async () => {
+    if (orphanTransactions.length === 0) return;
+    const orphanExpense = orphanTransactions
+      .filter(t => t.type === 'expense')
+      .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+
+    if (!window.confirm(`检测到 ${orphanTransactions.length} 笔已删账号的历史残留流水（导致成本虚高 ¥${orphanExpense.toFixed(2)}）。\n\n是否立即清理这些孤儿流水并恢复真实数据？`)) {
+      return;
+    }
+
+    setIsCleaningOrphans(true);
+    const orphanIds = new Set(orphanTransactions.map(t => t.id));
+    try {
+      await Promise.all(
+        orphanTransactions.map(t => authFetch(`/api/transactions/${t.id}`, { method: 'DELETE' }))
+      );
+      setTransactions(prev => prev.filter(t => !orphanIds.has(t.id)));
+      alert('已成功清理孤儿流水，财务看板数据已自动校准！');
+    } catch (err) {
+      alert('清理失败，请检查网络或重试');
+    } finally {
+      setIsCleaningOrphans(false);
+    }
+  };
 
   const handleTxSubmit = async (e) => {
     e.preventDefault();
@@ -306,28 +377,56 @@ const FinanceDashboard = () => {
 
   const stats = useMemo(() => {
     let totalIncomeCents = 0, totalExpenseCents = 0, thisMonthIncomeCents = 0, thisMonthExpenseCents = 0;
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = getLocalMonthStr();
+
     transactions.forEach(t => {
-      const amountCents = Math.round((t.amount || 0) * 100);
+      const amountCents = Math.round((parseFloat(t.amount) || 0) * 100);
       const tDate = t.date || '';
       if (t.type === 'income') {
         totalIncomeCents += amountCents;
         if (tDate.startsWith(currentMonth)) thisMonthIncomeCents += amountCents;
-      }
-      else {
+      } else {
         totalExpenseCents += amountCents;
         if (tDate.startsWith(currentMonth)) thisMonthExpenseCents += amountCents;
       }
     });
+
+    // 基于库存 accounts 计算货值与真实毛利润
+    let unsoldCostCents = 0;     // 待售库存货值 (存活且未售)
+    let realizedIncomeCents = 0; // 已售总收入
+    let realizedCostCents = 0;   // 已售进货成本
+    let soldCount = 0;
+    let unsoldAliveCount = 0;
+
+    accounts.forEach(acc => {
+      const costCents = Math.round((parseFloat(acc.cost) || 0) * 100);
+      const incomeCents = Math.round((parseFloat(acc.income) || 0) * 100);
+
+      if (incomeCents > 0) {
+        soldCount++;
+        realizedIncomeCents += incomeCents;
+        realizedCostCents += costCents;
+      } else if (acc.status === 'alive') {
+        unsoldAliveCount++;
+        unsoldCostCents += costCents;
+      }
+    });
+
+    const realizedProfitCents = realizedIncomeCents - realizedCostCents;
+
     return {
       totalIncome: totalIncomeCents / 100,
       totalExpense: totalExpenseCents / 100,
       balance: (totalIncomeCents - totalExpenseCents) / 100,
       thisMonthIncome: thisMonthIncomeCents / 100,
       thisMonthExpense: thisMonthExpenseCents / 100,
-      thisMonthBalance: (thisMonthIncomeCents - thisMonthExpenseCents) / 100
+      thisMonthBalance: (thisMonthIncomeCents - thisMonthExpenseCents) / 100,
+      unsoldInventoryCost: unsoldCostCents / 100,
+      unsoldAliveCount,
+      realizedProfit: realizedProfitCents / 100,
+      soldCount
     };
-  }, [transactions]);
+  }, [transactions, accounts]);
 
   const chartData = useMemo(() => {
     const grouped = {};
@@ -336,7 +435,7 @@ const FinanceDashboard = () => {
       if (!month) return;
       if (!grouped[month]) grouped[month] = { name: month, income: 0, expense: 0 };
 
-      const amountCents = Math.round((t.amount || 0) * 100);
+      const amountCents = Math.round((parseFloat(t.amount) || 0) * 100);
       t.type === 'income' ? grouped[month].income += amountCents : grouped[month].expense += amountCents;
     });
 
@@ -351,34 +450,138 @@ const FinanceDashboard = () => {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
-          <span className="text-gray-500 text-sm font-medium mb-1 block">历史总收入</span>
-          <div className="text-2xl font-bold text-green-600">¥{stats.totalIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
-          <TrendingUp className="w-16 h-16 text-green-500 absolute -right-4 -bottom-4 opacity-10" />
+      {/* 孤儿流水异常检测横幅 */}
+      {orphanTransactions.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 text-sm shadow-sm animate-in fade-in duration-300">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <span className="font-semibold text-amber-950">检测到 {orphanTransactions.length} 笔已删账号的历史残留孤儿流水</span>
+              <span className="text-amber-800 text-xs ml-2">
+                (导致历史成本虚高 ¥{orphanTransactions.filter(t => t.type === 'expense').reduce((s, t) => s + (parseFloat(t.amount) || 0), 0).toFixed(2)})
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={handleCleanOrphans}
+            disabled={isCleaningOrphans}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm whitespace-nowrap cursor-pointer flex items-center gap-1.5 self-end sm:self-auto"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isCleaningOrphans ? 'animate-spin' : ''}`} />
+            {isCleaningOrphans ? '正在清理校准...' : '一键清理并恢复真实成本'}
+          </button>
+        </div>
+      )}
+
+      {/* 核心指标看板：本月经营表现 + 历史资产大盘 */}
+      <div className="space-y-4">
+        {/* 当月经营表现 */}
+        <div className="bg-gradient-to-br from-indigo-50/70 via-purple-50/30 to-white rounded-2xl p-5 border border-indigo-100/80 shadow-sm">
+          <div className="flex items-center justify-between mb-3.5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-indigo-500 ring-4 ring-indigo-100"></span>
+              <h3 className="text-sm font-bold text-gray-800 tracking-wide">
+                本月经营表现 ({currentMonthStr})
+              </h3>
+            </div>
+            <span className="text-xs text-gray-500 font-medium">当月流水归集与收支闭环</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 relative overflow-hidden">
+              <span className="text-gray-500 text-xs font-medium mb-1 block">本月销售收入</span>
+              <div className="text-2xl font-bold text-green-600">
+                ¥{stats.thisMonthIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-gray-400 mt-0.5 block">当月售出账号收入总计</span>
+              <TrendingUp className="w-12 h-12 text-green-500 absolute -right-2 -bottom-2 opacity-10" />
+            </div>
+
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 relative overflow-hidden">
+              <span className="text-gray-500 text-xs font-medium mb-1 block">本月采购支出</span>
+              <div className="text-2xl font-bold text-red-500">
+                ¥{stats.thisMonthExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-gray-400 mt-0.5 block">当月进货/开卡等成本</span>
+              <TrendingDown className="w-12 h-12 text-red-500 absolute -right-2 -bottom-2 opacity-10" />
+            </div>
+
+            <div className={`bg-white rounded-xl p-4 shadow-sm border relative overflow-hidden ${stats.thisMonthBalance >= 0 ? 'border-indigo-100' : 'border-orange-100'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-gray-500 text-xs font-medium block">本月收支差额</span>
+                <span className="text-[10px] text-gray-400 font-normal">收入 - 支出</span>
+              </div>
+              <div className={`text-2xl font-bold ${stats.thisMonthBalance >= 0 ? 'text-indigo-600' : 'text-orange-500'}`}>
+                ¥{stats.thisMonthBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-gray-400 mt-0.5 block">当月现金流净额</span>
+              <DollarSign className={`w-12 h-12 absolute -right-2 -bottom-2 opacity-10 ${stats.thisMonthBalance >= 0 ? 'text-indigo-500' : 'text-orange-500'}`} />
+            </div>
+          </div>
         </div>
 
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
-          <span className="text-gray-500 text-sm font-medium mb-1 block">历史总成本</span>
-          <div className="text-2xl font-bold text-red-500">¥{stats.totalExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
-          <TrendingDown className="w-16 h-16 text-red-500 absolute -right-4 -bottom-4 opacity-10" />
-        </div>
+        {/* 历史全期大盘与资产价值 */}
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-3.5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-gray-400 ring-4 ring-gray-100"></span>
+              <h3 className="text-sm font-bold text-gray-800 tracking-wide">
+                历史全期大盘与资产价值
+              </h3>
+            </div>
+            <span className="text-xs text-gray-400 font-medium">全期资金流向与实际商品毛利</span>
+          </div>
 
-        <div className={`bg-white rounded-xl p-5 shadow-sm border relative overflow-hidden ${stats.balance >= 0 ? 'border-green-100' : 'border-red-100'}`}>
-          <span className="text-gray-500 text-sm font-medium mb-1 block">历史总利润</span>
-          <div className={`text-2xl font-bold ${stats.balance >= 0 ? 'text-green-600' : 'text-red-500'}`}>¥{stats.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
-          <DollarSign className={`w-16 h-16 absolute -right-4 -bottom-4 opacity-10 ${stats.balance >= 0 ? 'text-green-500' : 'text-red-500'}`} />
-        </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="bg-gray-50/70 rounded-xl p-4 border border-gray-100 relative overflow-hidden">
+              <span className="text-gray-500 text-xs font-medium mb-1 block">历史总销售额</span>
+              <div className="text-xl sm:text-2xl font-bold text-green-600">
+                ¥{stats.totalIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-gray-400 mt-0.5 block">累计进账总流水</span>
+            </div>
 
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
-          <span className="text-gray-500 text-sm font-medium mb-1 block">本月销售收入</span>
-          <div className="text-2xl font-bold text-gray-800">¥{stats.thisMonthIncome.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
-        </div>
+            <div className="bg-gray-50/70 rounded-xl p-4 border border-gray-100 relative overflow-hidden">
+              <span className="text-gray-500 text-xs font-medium mb-1 block">历史总采购额</span>
+              <div className="text-xl sm:text-2xl font-bold text-red-500">
+                ¥{stats.totalExpense.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-gray-400 mt-0.5 block">累计采购总支出</span>
+            </div>
 
-        <div className={`bg-white rounded-xl p-5 shadow-sm border relative overflow-hidden ${stats.thisMonthBalance >= 0 ? 'border-indigo-100' : 'border-orange-100'}`}>
-          <span className="text-gray-500 text-sm font-medium mb-1 block">本月净利润</span>
-          <div className={`text-2xl font-bold ${stats.thisMonthBalance >= 0 ? 'text-indigo-600' : 'text-orange-500'}`}>¥{stats.thisMonthBalance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
-          <DollarSign className={`w-16 h-16 absolute -right-4 -bottom-4 opacity-10 ${stats.thisMonthBalance >= 0 ? 'text-indigo-500' : 'text-orange-500'}`} />
+            <div className="bg-indigo-50/50 rounded-xl p-4 border border-indigo-100 relative overflow-hidden">
+              <span className="text-indigo-600 text-xs font-semibold mb-1 block flex items-center justify-between">
+                <span>待售库存货值</span>
+                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-normal">{stats.unsoldAliveCount} 个待售</span>
+              </span>
+              <div className="text-xl sm:text-2xl font-bold text-indigo-700">
+                ¥{stats.unsoldInventoryCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-indigo-500/80 mt-0.5 block">在库存活账号本金资产</span>
+            </div>
+
+            <div className="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100 relative overflow-hidden">
+              <span className="text-emerald-700 text-xs font-semibold mb-1 block flex items-center justify-between">
+                <span>真实销售毛利</span>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-normal">{stats.soldCount} 个已售</span>
+              </span>
+              <div className={`text-xl sm:text-2xl font-bold ${stats.realizedProfit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                ¥{stats.realizedProfit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-emerald-600/80 mt-0.5 block">已售收入 - 已售进价</span>
+            </div>
+
+            <div className={`rounded-xl p-4 border relative overflow-hidden col-span-2 sm:col-span-1 ${stats.balance >= 0 ? 'bg-gray-50/70 border-gray-100' : 'bg-orange-50/40 border-orange-100'}`}>
+              <span className="text-gray-500 text-xs font-medium mb-1 block flex items-center justify-between">
+                <span>累计收支结余</span>
+                <span className="text-[10px] text-gray-400 font-normal">销售 - 采购</span>
+              </span>
+              <div className={`text-xl sm:text-2xl font-bold ${stats.balance >= 0 ? 'text-gray-800' : 'text-orange-600'}`}>
+                ¥{stats.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <span className="text-[11px] text-gray-400 mt-0.5 block">全期现金流净差额</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -746,7 +949,7 @@ const AccountInventory = ({ setToastMessage }) => {
 
   // 用于控制卡片编辑状态的 State
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', email2fa: '', cost: '', costCurrency: 'CNY', income: '', accountName: '', status: 'alive', description: '', region: '' });
+  const [editForm, setEditForm] = useState({ accountData: '', twoFactor: '', email2fa: '', cost: '', costCurrency: 'CNY', income: '', soldDate: '', accountName: '', status: 'alive', description: '', region: '' });
 
   // 独立的账号粘贴框 与 2FA单独字段
   const [accountFormData, setAccountFormData] = useState({
@@ -756,9 +959,10 @@ const AccountInventory = ({ setToastMessage }) => {
     cost: '',
     costCurrency: 'CNY',
     income: '',
+    soldDate: '',
     accountName: '',
     status: 'alive',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateStr(),
     description: '',
     region: ''
   });
@@ -790,7 +994,7 @@ const AccountInventory = ({ setToastMessage }) => {
         type: type === 'cost' ? 'expense' : 'income',
         amount: numAmount,
         category: type === 'cost' ? '账号成本' : '账号收入',
-        date: date,
+        date: date || getLocalDateStr(),
         description: accountName || ''
       };
       try {
@@ -822,6 +1026,9 @@ const AccountInventory = ({ setToastMessage }) => {
       finalCost = parseFloat((finalCost * exchangeRate).toFixed(2));
     }
 
+    const hasIncome = parseFloat(accountFormData.income) > 0;
+    const soldDate = hasIncome ? (accountFormData.soldDate || accountFormData.date) : '';
+
     const newAccount = {
       ...accountFormData,
       id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
@@ -831,6 +1038,7 @@ const AccountInventory = ({ setToastMessage }) => {
       email2fa: accountFormData.email2fa || '',
       cost: finalCost,
       income: parseFloat(accountFormData.income) || 0,
+      soldDate: soldDate,
       accountName: accountFormData.accountName || '',
       region: accountFormData.region || '',
     };
@@ -862,20 +1070,24 @@ const AccountInventory = ({ setToastMessage }) => {
       }
 
       await syncTransaction(newAccount.id, 'cost', finalCost, accountFormData.date, accountFormData.accountName);
-      await syncTransaction(newAccount.id, 'income', accountFormData.income, accountFormData.date, accountFormData.accountName);
+      await syncTransaction(newAccount.id, 'income', accountFormData.income, soldDate || accountFormData.date, accountFormData.accountName);
     } catch (e) {
       console.log('保存失败', e);
       alert('保存到云端失败：' + e.message);
     }
 
     // 清空表单，保留日期等选项
-    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', cost: '', costCurrency: 'CNY', income: '', accountName: '', description: '', region: '' }));
+    setAccountFormData(prev => ({ ...prev, accountData: '', twoFactor: '', email2fa: '', cost: '', costCurrency: 'CNY', income: '', soldDate: '', accountName: '', description: '', region: '' }));
   };
 
   const handleAccDelete = async (id) => {
-    if (!window.confirm('删除账号记录不可恢复，确定删除？')) return;
+    if (!window.confirm('删除账号记录不可恢复，同时将清理关联的财务流水，确定删除？')) return;
     setAccounts(prev => prev.filter(t => t.id !== id));
-    try { await authFetch(`/api/accounts/${id}`, { method: 'DELETE' }); } catch (e) { }
+    try {
+      await authFetch(`/api/accounts/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/transactions/${id}-cost`, { method: 'DELETE' });
+      await authFetch(`/api/transactions/${id}-income`, { method: 'DELETE' });
+    } catch (e) { }
   };
 
   const handleAccStatusToggle = async (id, currentStatus) => {
@@ -889,6 +1101,7 @@ const AccountInventory = ({ setToastMessage }) => {
   // 启动编辑
   const startEdit = (acc) => {
     setEditingId(acc.id);
+    const hasIncome = parseFloat(acc.income) > 0;
     setEditForm({
       accountData: acc.email, // 后端已解密为明文
       twoFactor: acc.twoFactor || '',
@@ -896,6 +1109,7 @@ const AccountInventory = ({ setToastMessage }) => {
       cost: acc.cost,
       costCurrency: 'CNY',
       income: acc.income || '',
+      soldDate: acc.soldDate || (hasIncome ? (acc.date || getLocalDateStr()) : getLocalDateStr()),
       accountName: acc.accountName || '',
       status: acc.status,
       description: acc.description || '',
@@ -915,6 +1129,10 @@ const AccountInventory = ({ setToastMessage }) => {
       finalCost = parseFloat((finalCost * exchangeRate).toFixed(2));
     }
 
+    const currentAcc = accounts.find(a => a.id === id) || {};
+    const hasIncome = parseFloat(editForm.income) > 0;
+    const soldDate = hasIncome ? (editForm.soldDate || getLocalDateStr()) : '';
+
     const updatedAcc = {
       id, // 保持原始ID不变
       email: editForm.accountData, // 后端会自动加密
@@ -923,11 +1141,12 @@ const AccountInventory = ({ setToastMessage }) => {
       email2fa: editForm.email2fa || '',
       cost: finalCost,
       income: parseFloat(editForm.income) || 0,
+      soldDate: soldDate,
       accountName: editForm.accountName || '',
       status: editForm.status,
       description: editForm.description,
       region: editForm.region || '',
-      date: accounts.find(a => a.id === id).date // 保持原始录入日期
+      date: currentAcc.date || getLocalDateStr() // 保持原始进货录入日期
     };
 
     // 本地优先更新 (乐观更新)
@@ -958,8 +1177,9 @@ const AccountInventory = ({ setToastMessage }) => {
         setToastMessage('修改已重新加密保存');
       }
 
+      // 关键修复：成本同步使用采购建档日期，收入流水使用实际售出日期（准确归集到当月业绩！）
       await syncTransaction(id, 'cost', finalCost, updatedAcc.date, editForm.accountName);
-      await syncTransaction(id, 'income', editForm.income, updatedAcc.date, editForm.accountName);
+      await syncTransaction(id, 'income', editForm.income, soldDate || updatedAcc.date, editForm.accountName);
     } catch (e) {
       console.error('Update failed', e);
       alert('同步到服务器失败：' + e.message);
@@ -975,16 +1195,28 @@ const AccountInventory = ({ setToastMessage }) => {
   };
 
   const stats = useMemo(() => {
-    let aliveAccounts = 0, bannedAccounts = 0, totalCostCents = 0;
+    let aliveAccounts = 0, bannedAccounts = 0, totalCostCents = 0, unsoldCostCents = 0, soldCount = 0;
     accounts.forEach(acc => {
-      acc.status === 'alive' ? aliveAccounts++ : bannedAccounts++;
-      totalCostCents += Math.round((acc.cost || 0) * 100);
+      const isAlive = acc.status === 'alive';
+      const isSold = parseFloat(acc.income) > 0;
+      if (isAlive) aliveAccounts++;
+      else bannedAccounts++;
+
+      const cost = Math.round((parseFloat(acc.cost) || 0) * 100);
+      totalCostCents += cost;
+      if (isAlive && !isSold) {
+        unsoldCostCents += cost;
+      }
+      if (isSold) soldCount++;
     });
     return {
       totalAccounts: accounts.length,
       aliveAccounts,
       bannedAccounts,
-      totalCost: totalCostCents / 100
+      soldAccounts: soldCount,
+      unsoldAliveAccounts: aliveAccounts - soldCount,
+      totalCost: totalCostCents / 100,
+      unsoldCost: unsoldCostCents / 100
     };
   }, [accounts]);
 
@@ -1051,10 +1283,26 @@ const AccountInventory = ({ setToastMessage }) => {
     <div className="space-y-6">
       {/* 顶部统计卡片 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100"><span className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-1"><Box className="w-4 h-4" />总录入</span><div className="text-2xl font-bold text-indigo-600 mt-1">{stats.totalAccounts} 个</div></div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-green-100 bg-green-50/30"><span className="text-green-600 text-sm font-medium mb-1 flex items-center gap-1"><CheckCircle2 className="w-4 h-4" />当前存活</span><div className="text-2xl font-bold text-green-700 mt-1">{stats.aliveAccounts} 个</div></div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-red-100 bg-red-50/30"><span className="text-red-600 text-sm font-medium mb-1 flex items-center gap-1"><Ban className="w-4 h-4" />封禁/阵亡</span><div className="text-2xl font-bold text-red-600 mt-1">{stats.bannedAccounts} 个</div></div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100"><span className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-1"><DollarSign className="w-4 h-4" />库存总成本</span><div className="text-2xl font-bold text-gray-800 mt-1">¥{stats.totalCost.toLocaleString()}</div></div>
+        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+          <span className="text-gray-500 text-sm font-medium mb-1 flex items-center gap-1"><Box className="w-4 h-4" />总录入</span>
+          <div className="text-2xl font-bold text-indigo-600 mt-1">{stats.totalAccounts} 个</div>
+          <span className="text-xs text-gray-400 mt-1 block">已售出 {stats.soldAccounts} 个</span>
+        </div>
+        <div className="bg-white rounded-xl p-5 shadow-sm border border-green-100 bg-green-50/30">
+          <span className="text-green-600 text-sm font-medium mb-1 flex items-center gap-1"><CheckCircle2 className="w-4 h-4" />当前存活</span>
+          <div className="text-2xl font-bold text-green-700 mt-1">{stats.aliveAccounts} 个</div>
+          <span className="text-xs text-green-600/80 mt-1 block">其中待售 {stats.unsoldAliveAccounts} 个</span>
+        </div>
+        <div className="bg-white rounded-xl p-5 shadow-sm border border-red-100 bg-red-50/30">
+          <span className="text-red-600 text-sm font-medium mb-1 flex items-center gap-1"><Ban className="w-4 h-4" />封禁/阵亡</span>
+          <div className="text-2xl font-bold text-red-600 mt-1">{stats.bannedAccounts} 个</div>
+          <span className="text-xs text-red-500/80 mt-1 block">不可售损耗</span>
+        </div>
+        <div className="bg-white rounded-xl p-5 shadow-sm border border-indigo-100 bg-indigo-50/20">
+          <span className="text-indigo-600 text-sm font-medium mb-1 flex items-center gap-1"><DollarSign className="w-4 h-4" />待售库存货值</span>
+          <div className="text-2xl font-bold text-indigo-700 mt-1">¥{stats.unsoldCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</div>
+          <span className="text-xs text-gray-400 mt-1 block">历史进货累计: ¥{stats.totalCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+        </div>
       </div>
 
       {/* 录入表单：恢复独立字段录入 */}
@@ -1257,7 +1505,13 @@ const AccountInventory = ({ setToastMessage }) => {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-indigo-500 mb-1">收入 (¥)</label>
-                          <input type="number" step="0.01" value={editForm.income} onChange={e => setEditForm({ ...editForm, income: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" />
+                          <input type="number" step="0.01" value={editForm.income} onChange={e => setEditForm({ ...editForm, income: e.target.value })} className="w-full text-sm border border-indigo-200 bg-white rounded-lg p-2 outline-none focus:ring-1 focus:ring-indigo-400" placeholder="未售留空" />
+                          {parseFloat(editForm.income) > 0 && (
+                            <div className="mt-1.5 animate-in fade-in duration-200">
+                              <label className="block text-[10px] font-medium text-indigo-500 mb-0.5">售出日期 (归集当月销售)</label>
+                              <input type="date" value={editForm.soldDate || getLocalDateStr()} onChange={e => setEditForm({ ...editForm, soldDate: e.target.value })} className="w-full text-xs border border-indigo-200 bg-white rounded p-1.5 outline-none text-gray-700 focus:ring-1 focus:ring-indigo-400" />
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1422,9 +1676,18 @@ const AccountInventory = ({ setToastMessage }) => {
 
                     {/* 底部信息 (备注已实现自动换行，不再截断) */}
                     <div className="flex flex-col gap-2 text-sm mb-3">
-                      <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-center text-xs">
                         <span className="text-gray-500 font-medium">成本: ¥{Number(acc.cost).toLocaleString()}</span>
-                        <span className="text-gray-500 font-medium">收入: ¥{Number(acc.income || 0).toLocaleString()}</span>
+                        {parseFloat(acc.income) > 0 ? (
+                          <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                            已售: ¥{Number(acc.income).toLocaleString()}
+                            {acc.soldDate && <span className="text-[10px] text-emerald-500 font-normal">({acc.soldDate})</span>}
+                          </span>
+                        ) : (
+                          <span className="text-indigo-600 font-medium bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                            待售中
+                          </span>
+                        )}
                       </div>
                       <div className="text-gray-600 bg-gray-50 px-2.5 py-2 rounded text-xs break-words whitespace-pre-wrap border border-gray-100 min-h-[34px]">
                         {acc.description || <span className="text-gray-400 italic">暂无备注</span>}
